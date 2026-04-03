@@ -310,20 +310,20 @@ func GetItem(ctx context.Context, svcCtx *svc.ServerCtx, chain string, chainID i
 	}()
 
 	// 4. 查询item图片和视频信息
-	ItemExternals := make(map[string]multi.ItemExternal)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		items, err := svcCtx.Dao.QueryCollectionItemsImage(ctx, chain, collectionAddr, []string{tokenID})
-		if err != nil {
-			queryErr = errors.Wrap(err, "failed on get items image info")
-			return
-		}
+	// ItemExternals := make(map[string]multi.ItemExternal)
+	// wg.Add(1)
+	// go func() {
+	// 	defer wg.Done()
+	// 	items, err := svcCtx.Dao.QueryCollectionItemsImage(ctx, chain, collectionAddr, []string{tokenID})
+	// 	if err != nil {
+	// 		queryErr = errors.Wrap(err, "failed on get items image info")
+	// 		return
+	// 	}
 
-		for _, item := range items {
-			ItemExternals[strings.ToLower(item.TokenId)] = item
-		}
-	}()
+	// 	for _, item := range items {
+	// 		ItemExternals[strings.ToLower(item.TokenId)] = item
+	// 	}
+	// }()
 
 	// 5. 查询最近成交价格
 	lastSales := make(map[string]decimal.Decimal)
@@ -448,22 +448,7 @@ func GetItem(ctx context.Context, svcCtx *svc.ServerCtx, chain string, chainID i
 		itemDetail.LastSellPrice = price
 	}
 
-	// 设置图片和视频信息
-	itemExternal, ok := ItemExternals[strings.ToLower(tokenID)]
-	if ok {
-		itemDetail.ImageURI = itemExternal.ImageUri
-		if itemExternal.IsUploadedOss {
-			itemDetail.ImageURI = itemExternal.OssUri
-		}
-		if len(itemExternal.VideoUri) > 0 {
-			itemDetail.VideoType = itemExternal.VideoType
-			if itemExternal.IsVideoUploaded {
-				itemDetail.VideoURI = itemExternal.VideoOssUri
-			} else {
-				itemDetail.VideoURI = itemExternal.VideoUri
-			}
-		}
-	}
+	itemDetail.ImageURI = item.ImageURL
 
 	return &types.ItemDetailInfoResp{
 		Result: itemDetail,

@@ -165,3 +165,76 @@ func processBids(tokenIds []string, itemsBestBids map[string]multi.Order, collec
 
 	return resultBids
 }
+
+// GetListings 获取挂单列表
+func GetListings(ctx context.Context, svcCtx *svc.ServerCtx, chain string, filter types.ListingsRequest) (*types.ListingsResponse, error) {
+	// 查询挂单列表
+	listings, total, err := svcCtx.Dao.QueryListings(ctx, chain, filter)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to query listings")
+	}
+
+	// 设置订单状态
+	for i := range listings {
+		listings[i].Status = getOrderStatus(listings[i].OrderStatus)
+	}
+
+	return &types.ListingsResponse{
+		Listings: listings,
+		Total:    total,
+		Page:     filter.Page,
+		PageSize: filter.PageSize,
+	}, nil
+}
+
+// GetOrderBids 获取出价列表
+func GetOrderBids(ctx context.Context, svcCtx *svc.ServerCtx, chain string, filter types.BidsRequest) (*types.BidsResponse, error) {
+	// 查询出价列表
+	bids, total, err := svcCtx.Dao.QueryBids(ctx, chain, filter)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to query bids")
+	}
+
+	// 设置订单状态和出价类型
+	for i := range bids {
+		bids[i].Status = getOrderStatus(bids[i].OrderStatus)
+		bids[i].BidType = getBidTypeString(bids[i].OrderType)
+	}
+
+	return &types.BidsResponse{
+		Bids:     bids,
+		Total:    total,
+		Page:     filter.Page,
+		PageSize: filter.PageSize,
+	}, nil
+}
+
+// getOrderStatus 获取订单状态字符串
+func getOrderStatus(status int) string {
+	switch status {
+	case multi.OrderStatusActive:
+		return "active"
+	case multi.OrderStatusInactive:
+		return "inactive"
+	case multi.OrderStatusExpired:
+		return "expired"
+	case multi.OrderStatusCancelled:
+		return "cancelled"
+	case multi.OrderStatusFilled:
+		return "filled"
+	default:
+		return "unknown"
+	}
+}
+
+// getBidTypeString 获取出价类型字符串
+func getBidTypeString(orderType int64) string {
+	switch orderType {
+	case multi.OfferOrder, multi.ItemBidOrder:
+		return "item"
+	case multi.CollectionBidOrder:
+		return "collection"
+	default:
+		return "unknown"
+	}
+}

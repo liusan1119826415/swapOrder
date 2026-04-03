@@ -288,6 +288,11 @@ func (s *Service) handleMakeEvent(log ethereumTypes.Log) {
 }
 
 func (s *Service) handleMatchEvent(log ethereumTypes.Log) {
+	xzap.WithContext(s.ctx).Debug("=== Starting handleMatchEvent ===",
+		zap.Uint64("block_number", log.BlockNumber),
+		zap.String("tx_hash", log.TxHash.String()),
+		zap.String("topic0", log.Topics[0].String()))
+
 	var event struct {
 		MakeOrder Order
 		TakeOrder Order
@@ -300,8 +305,54 @@ func (s *Service) handleMatchEvent(log ethereumTypes.Log) {
 		return
 	}
 
-	makeOrderId := HexPrefix + hex.EncodeToString(log.Topics[1].Bytes()) // 通过topic获取订单ID
+	xzap.WithContext(s.ctx).Debug("Unpacked LogMatch event",
+		zap.String("makeOrder_maker", event.MakeOrder.Maker.String()),
+		zap.Uint8("makeOrder_side", event.MakeOrder.Side),
+		zap.Uint8("makeOrder_saleKind", event.MakeOrder.SaleKind),
+		zap.String("takeOrder_maker", event.TakeOrder.Maker.String()),
+		zap.Uint8("takeOrder_side", event.TakeOrder.Side),
+		zap.Uint8("takeOrder_saleKind", event.TakeOrder.SaleKind),
+		zap.String("fillPrice", event.FillPrice.String()))
+
+	makeOrderId := HexPrefix + hex.EncodeToString(log.Topics[1].Bytes()) // 通过 topic 获取订单 ID
 	takeOrderId := HexPrefix + hex.EncodeToString(log.Topics[2].Bytes())
+
+	// 重要：合约有两处 emit LogMatch，参数顺序相反
+	// 第一处 (497 行): makeOrder=sellOrder, takeOrder=buyOrder
+	// 第二处 (553 行): makeOrder=buyOrder, takeOrder=sellOrder
+	// 需要根据 side 判断真实情况
+	var actualSellOrder Order
+	var actualBuyOrder Order
+	var actualMakeOrderId string
+	var actualTakeOrderId string
+
+	if event.MakeOrder.Side == 0 { // MakeOrder 是卖单 (Side=0)
+		// 这是第一处 emit (497 行) - 卖家先挂单，买家来买
+		xzap.WithContext(s.ctx).Debug("Detected: Case 1 - Seller is Maker (first emit location)")
+		actualSellOrder = event.MakeOrder
+		actualBuyOrder = event.TakeOrder
+		actualMakeOrderId = makeOrderId
+		actualTakeOrderId = takeOrderId
+	} else { // MakeOrder 是买单 (Side=1)
+		// 这是第二处 emit (553 行) - 买家先挂单，卖家来卖
+		xzap.WithContext(s.ctx).Debug("Detected: Case 2 - Buyer is Maker (second emit location)")
+		actualBuyOrder = event.MakeOrder
+		actualSellOrder = event.TakeOrder
+		// 注意：这里 orderId 也要交换
+		actualMakeOrderId = takeOrderId
+		actualTakeOrderId = makeOrderId
+	}
+
+	xzap.WithContext(s.ctx).Debug("Order IDs extracted",
+		zap.String("actualMakeOrderId", actualMakeOrderId),
+		zap.String("actualTakeOrderId", actualTakeOrderId),
+		zap.String("raw_makeOrderId_from_topic", makeOrderId),
+		zap.String("raw_takeOrderId_from_topic", takeOrderId))
+
+	xzap.WithContext(s.ctx).Debug("Order IDs extracted",
+		zap.String("makeOrderId", makeOrderId),
+		zap.String("takeOrderId", takeOrderId))
+
 	var owner string
 	var collection string
 	var tokenId string
@@ -309,100 +360,167 @@ func (s *Service) handleMatchEvent(log ethereumTypes.Log) {
 	var to string
 	var sellOrderId string
 	var buyOrder multi.Order
-	if event.MakeOrder.Side == Bid { // 买单， 由卖方发起交易撮合
-		owner = strings.ToLower(event.MakeOrder.Maker.String())
-		collection = event.TakeOrder.Nft.CollectionAddr.String()
-		tokenId = event.TakeOrder.Nft.TokenId.String()
-		from = event.TakeOrder.Maker.String()
-		to = event.MakeOrder.Maker.String()
-		sellOrderId = takeOrderId
+
+	// 现在直接使用 actualSellOrder 和 actualBuyOrder
+	if actualBuyOrder.Side == Bid { // 买单作为 TakeOrder - 卖方发起交易撮合
+		xzap.WithContext(s.ctx).Debug("Case 1: BuyOrder is TakeOrder - Seller initiated match",
+			zap.String("sellOrderId", actualSellOrder.Maker.String()),
+			zap.String("buyOrderId", actualBuyOrder.Maker.String()))
+
+		owner = strings.ToLower(actualBuyOrder.Maker.String())
+		collection = actualSellOrder.Nft.CollectionAddr.String()
+		tokenId = actualSellOrder.Nft.TokenId.String()
+		from = actualSellOrder.Maker.String()
+		to = actualBuyOrder.Maker.String()
+		sellOrderId = actualTakeOrderId
+
+		xzap.WithContext(s.ctx).Debug("Calculated values",
+			zap.String("owner (new)", owner),
+			zap.String("collection", collection),
+			zap.String("tokenId", tokenId),
+			zap.String("from", from),
+			zap.String("to", to),
+			zap.String("sellOrderId", sellOrderId))
 
 		// 更新卖方订单状态
+		xzap.WithContext(s.ctx).Debug("Updating SELL order status (TakeOrder)",
+			zap.String("orderId", actualTakeOrderId),
+			zap.String("taker", to))
+
 		if err := s.db.WithContext(s.ctx).Table(multi.OrderTableName(s.chain)).
-			Where("order_id = ?", takeOrderId).
+			Where("order_id = ?", actualTakeOrderId).
 			Updates(map[string]interface{}{
 				"order_status":       multi.OrderStatusFilled,
 				"quantity_remaining": 0,
 				"taker":              to,
 			}).Error; err != nil {
 			xzap.WithContext(s.ctx).Error("failed on update order status",
-				zap.String("order_id", takeOrderId))
+				zap.String("order_id", actualTakeOrderId))
 			return
 		}
+		xzap.WithContext(s.ctx).Debug("Successfully updated SELL order status")
 
 		// 查询买方订单信息，不存在则无需更新，说明不是从平台前端发起的交易
-		if err := s.db.WithContext(s.ctx).Table(multi.OrderTableName(s.chain)).
-			Where("order_id = ?", makeOrderId).
-			First(&buyOrder).Error; err != nil {
-			xzap.WithContext(s.ctx).Error("failed on get buy order",
-				zap.Error(err))
-			return
-		}
-		// 更新买方订单的剩余数量
-		if buyOrder.QuantityRemaining > 1 {
-			if err := s.db.WithContext(s.ctx).Table(multi.OrderTableName(s.chain)).
-				Where("order_id = ?", makeOrderId).
-				Update("quantity_remaining", buyOrder.QuantityRemaining-1).Error; err != nil {
-				xzap.WithContext(s.ctx).Error("failed on update order quantity_remaining",
-					zap.String("order_id", makeOrderId))
-				return
-			}
-		} else {
-			if err := s.db.WithContext(s.ctx).Table(multi.OrderTableName(s.chain)).
-				Where("order_id = ?", makeOrderId).
-				Updates(map[string]interface{}{
-					"order_status":       multi.OrderStatusFilled,
-					"quantity_remaining": 0,
-				}).Error; err != nil {
-				xzap.WithContext(s.ctx).Error("failed on update order status",
-					zap.String("order_id", makeOrderId))
-				return
-			}
-		}
-	} else { // 卖单， 由买方发起交易撮合， 同理
-		owner = strings.ToLower(event.TakeOrder.Maker.String())
-		collection = event.MakeOrder.Nft.CollectionAddr.String()
-		tokenId = event.MakeOrder.Nft.TokenId.String()
-		from = event.MakeOrder.Maker.String()
-		to = event.TakeOrder.Maker.String()
-		sellOrderId = makeOrderId
+		xzap.WithContext(s.ctx).Debug("Querying BUY order from database",
+			zap.String("orderId", actualMakeOrderId))
 
 		if err := s.db.WithContext(s.ctx).Table(multi.OrderTableName(s.chain)).
-			Where("order_id = ?", makeOrderId).
+			Where("order_id = ?", actualMakeOrderId).
+			First(&buyOrder).Error; err != nil {
+			xzap.WithContext(s.ctx).Warn("BUY order not found in DB - possibly off-chain trade, but continue to update NFT owner",
+				zap.String("orderId", actualMakeOrderId),
+				zap.Error(err))
+			// Note: Don't return here! We still need to update NFT owner and create activity
+			// This is an on-chain trade, even if the order is not in our DB
+		} else {
+			xzap.WithContext(s.ctx).Debug("Found BUY order in DB",
+				zap.String("orderId", actualMakeOrderId),
+				zap.Int64("quantityRemaining", buyOrder.QuantityRemaining))
+			if buyOrder.QuantityRemaining > 1 {
+				xzap.WithContext(s.ctx).Debug("Updating BUY order quantity (partial fill)",
+					zap.String("orderId", actualMakeOrderId),
+					zap.Int64("oldQuantity", buyOrder.QuantityRemaining),
+					zap.Int64("newQuantity", buyOrder.QuantityRemaining-1))
+
+				if err := s.db.WithContext(s.ctx).Table(multi.OrderTableName(s.chain)).
+					Where("order_id = ?", actualMakeOrderId).
+					Update("quantity_remaining", buyOrder.QuantityRemaining-1).Error; err != nil {
+					xzap.WithContext(s.ctx).Error("failed on update order quantity_remaining",
+						zap.String("order_id", actualMakeOrderId))
+					return
+				}
+			} else {
+				xzap.WithContext(s.ctx).Debug("Updating BUY order status to FILLED (quantity=1)",
+					zap.String("orderId", actualMakeOrderId))
+
+				if err := s.db.WithContext(s.ctx).Table(multi.OrderTableName(s.chain)).
+					Where("order_id = ?", actualMakeOrderId).
+					Updates(map[string]interface{}{
+						"order_status":       multi.OrderStatusFilled,
+						"quantity_remaining": 0,
+					}).Error; err != nil {
+					xzap.WithContext(s.ctx).Error("failed on update order status",
+						zap.String("order_id", actualMakeOrderId))
+					return
+				}
+			}
+		}
+	} else { // 卖单作为 TakeOrder - 买方发起交易撮合
+		xzap.WithContext(s.ctx).Debug("Case 2: SellOrder is TakeOrder - Buyer initiated match",
+			zap.String("sellOrderId", actualSellOrder.Maker.String()),
+			zap.String("buyOrderId", actualBuyOrder.Maker.String()))
+
+		owner = strings.ToLower(actualSellOrder.Maker.String())
+		collection = actualBuyOrder.Nft.CollectionAddr.String()
+		tokenId = actualBuyOrder.Nft.TokenId.String()
+		from = actualBuyOrder.Maker.String()
+		to = actualSellOrder.Maker.String()
+		sellOrderId = actualMakeOrderId
+
+		xzap.WithContext(s.ctx).Debug("Calculated values",
+			zap.String("owner (new)", owner),
+			zap.String("collection", collection),
+			zap.String("tokenId", tokenId),
+			zap.String("from", from),
+			zap.String("to", to),
+			zap.String("sellOrderId", sellOrderId))
+
+		xzap.WithContext(s.ctx).Debug("Updating SELL order status (MakeOrder)",
+			zap.String("orderId", actualMakeOrderId),
+			zap.String("taker", to))
+
+		if err := s.db.WithContext(s.ctx).Table(multi.OrderTableName(s.chain)).
+			Where("order_id = ?", actualMakeOrderId).
 			Updates(map[string]interface{}{
 				"order_status":       multi.OrderStatusFilled,
 				"quantity_remaining": 0,
 				"taker":              to,
 			}).Error; err != nil {
 			xzap.WithContext(s.ctx).Error("failed on update order status",
-				zap.String("order_id", makeOrderId))
+				zap.String("order_id", actualMakeOrderId))
 			return
 		}
+		xzap.WithContext(s.ctx).Debug("Successfully updated SELL order status")
+
+		xzap.WithContext(s.ctx).Debug("Querying BUY order from database",
+			zap.String("orderId", actualTakeOrderId))
 
 		if err := s.db.WithContext(s.ctx).Table(multi.OrderTableName(s.chain)).
-			Where("order_id = ?", takeOrderId).
+			Where("order_id = ?", actualTakeOrderId).
 			First(&buyOrder).Error; err != nil {
-			xzap.WithContext(s.ctx).Error("failed on get buy order",
+			xzap.WithContext(s.ctx).Warn("BUY order not found in DB - possibly off-chain trade",
+				zap.String("orderId", actualTakeOrderId),
 				zap.Error(err))
 			return
 		}
+		xzap.WithContext(s.ctx).Debug("Found BUY order in DB",
+			zap.String("orderId", actualTakeOrderId),
+			zap.Int64("quantityRemaining", buyOrder.QuantityRemaining))
 		if buyOrder.QuantityRemaining > 1 {
+			xzap.WithContext(s.ctx).Debug("Updating BUY order quantity (partial fill)",
+				zap.String("orderId", actualTakeOrderId),
+				zap.Int64("oldQuantity", buyOrder.QuantityRemaining),
+				zap.Int64("newQuantity", buyOrder.QuantityRemaining-1))
+
 			if err := s.db.WithContext(s.ctx).Table(multi.OrderTableName(s.chain)).
-				Where("order_id = ?", takeOrderId).
+				Where("order_id = ?", actualTakeOrderId).
 				Update("quantity_remaining", buyOrder.QuantityRemaining-1).Error; err != nil {
 				xzap.WithContext(s.ctx).Error("failed on update order quantity_remaining",
-					zap.String("order_id", takeOrderId))
+					zap.String("order_id", actualTakeOrderId))
 				return
 			}
 		} else {
+			xzap.WithContext(s.ctx).Debug("Updating BUY order status to FILLED (quantity=1)",
+				zap.String("orderId", actualTakeOrderId))
+
 			if err := s.db.WithContext(s.ctx).Table(multi.OrderTableName(s.chain)).
-				Where("order_id = ?", takeOrderId).
+				Where("order_id = ?", actualTakeOrderId).
 				Updates(map[string]interface{}{
 					"order_status":       multi.OrderStatusFilled,
 					"quantity_remaining": 0,
 				}).Error; err != nil {
 				xzap.WithContext(s.ctx).Error("failed on update order status",
-					zap.String("order_id", takeOrderId))
+					zap.String("order_id", actualTakeOrderId))
 				return
 			}
 		}
@@ -413,10 +531,19 @@ func (s *Service) handleMatchEvent(log ethereumTypes.Log) {
 		xzap.WithContext(s.ctx).Error("failed to get block time", zap.Error(err))
 		return
 	}
+
+	xzap.WithContext(s.ctx).Debug("Creating Activity record",
+		zap.Int("activityType", multi.Sale),
+		zap.String("maker (order_creator)", actualSellOrder.Maker.String()),
+		zap.String("taker (order_matcher)", actualBuyOrder.Maker.String()),
+		zap.String("collection", collection),
+		zap.String("tokenId", tokenId),
+		zap.String("price", decimal.NewFromBigInt(event.FillPrice, 0).String()))
+
 	newActivity := multi.Activity{
 		ActivityType:      multi.Sale,
-		Maker:             event.MakeOrder.Maker.String(),
-		Taker:             event.TakeOrder.Maker.String(),
+		Maker:             actualSellOrder.Maker.String(),
+		Taker:             actualBuyOrder.Maker.String(),
 		MarketplaceID:     multi.MarketOrderBook,
 		CollectionAddress: collection,
 		TokenId:           tokenId,
@@ -433,13 +560,54 @@ func (s *Service) handleMatchEvent(log ethereumTypes.Log) {
 			zap.Error(err))
 	}
 
-	// 更新NFT的所有者
+	xzap.WithContext(s.ctx).Debug("=== Before updating NFT owner ===",
+		zap.String("collection", collection),
+		zap.String("token_id", tokenId),
+		zap.String("owner (new)", owner),
+		zap.Int8("side", int8(event.MakeOrder.Side)),
+		zap.String("taker", event.TakeOrder.Maker.String()),
+		zap.String("maker", event.MakeOrder.Maker.String()))
+
+	// 检查当前 NFT 的所有者
+	var currentItem multi.Item
 	if err := s.db.WithContext(s.ctx).Table(multi.ItemTableName(s.chain)).
 		Where("collection_address = ? and token_id = ?", strings.ToLower(collection), tokenId).
-		Update("owner", owner).Error; err != nil {
-		xzap.WithContext(s.ctx).Error("failed to update item owner",
+		First(&currentItem).Error; err != nil {
+		xzap.WithContext(s.ctx).Warn("NFT item not found in DB - cannot update owner",
+			zap.String("collection", collection),
+			zap.String("token_id", tokenId),
 			zap.Error(err))
+	} else {
+		xzap.WithContext(s.ctx).Debug("Current NFT owner before update",
+			zap.String("collection", collection),
+			zap.String("token_id", tokenId),
+			zap.String("current_owner", currentItem.Owner))
+	}
+
+	// 更新 NFT 的所有者
+	xzap.WithContext(s.ctx).Debug("Executing UPDATE query",
+		zap.String("table", multi.ItemTableName(s.chain)),
+		zap.String("where_collection", strings.ToLower(collection)),
+		zap.String("where_token_id", tokenId),
+		zap.String("new_owner", owner))
+
+	result := s.db.WithContext(s.ctx).Table(multi.ItemTableName(s.chain)).
+		Where("collection_address = ? and token_id = ?", strings.ToLower(collection), tokenId).
+		Update("owner", owner)
+
+	if result.Error != nil {
+		xzap.WithContext(s.ctx).Error("failed to update item owner",
+			zap.Error(result.Error))
 		return
+	}
+
+	xzap.WithContext(s.ctx).Debug("UPDATE executed successfully",
+		zap.Int64("rows_affected", result.RowsAffected))
+
+	if result.RowsAffected == 0 {
+		xzap.WithContext(s.ctx).Warn("No rows affected - NFT not found or owner unchanged",
+			zap.String("collection", collection),
+			zap.String("token_id", tokenId))
 	}
 
 	if err := ordermanager.AddUpdatePriceEvent(s.kv, &ordermanager.TradeEvent{ // 将交易信息存入价格更新队列
@@ -454,7 +622,13 @@ func (s *Service) handleMatchEvent(log ethereumTypes.Log) {
 			zap.Error(err),
 			zap.String("type", "sale"),
 			zap.String("order_id", sellOrderId))
+	} else {
+		xzap.WithContext(s.ctx).Debug("Successfully added price update event to queue")
 	}
+
+	xzap.WithContext(s.ctx).Debug("=== handleMatchEvent completed successfully ===",
+		zap.String("tx_hash", log.TxHash.String()),
+		zap.String("nft_owner_updated_to", owner))
 }
 
 func (s *Service) handleCancelEvent(log ethereumTypes.Log) {

@@ -22,7 +22,7 @@ export default function TopNav() {
         <Link href="/" className="text-2xl font-bold bg-gradient-to-r from-[#DDB7FF] to-[#A6E6FF] bg-clip-text text-transparent font-['Space_Grotesk'] tracking-tight">
           Neon Vault
         </Link>
-        <div className="hidden md:flex items-center gap-8 font-['Space_Grotesk'] tracking-tight text-sm">
+        {/* <div className="hidden md:flex items-center gap-8 font-['Space_Grotesk'] tracking-tight text-sm">
           {navItems.map((item) => (
             <Link
               key={item.href}
@@ -37,7 +37,7 @@ export default function TopNav() {
               {item.label}
             </Link>
           ))}
-        </div>
+        </div> */}
       </div>
 
       <div className="flex items-center gap-6">

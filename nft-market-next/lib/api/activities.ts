@@ -1,5 +1,5 @@
 import { get } from './client';
-import type { Activity, ActivityFilterParams, PaginatedResponse } from '@/types';
+import type { Activity, ActivityFilterParams, ActivityApiResponse } from '@/types';
 
 /**
  * 获取市场活动记录
@@ -8,7 +8,7 @@ import type { Activity, ActivityFilterParams, PaginatedResponse } from '@/types'
  */
 export const getActivities = async (
   filters: ActivityFilterParams
-): Promise<PaginatedResponse<Activity>> => {
+): Promise<ActivityApiResponse<Activity>> => {
   const params = new URLSearchParams();
   params.append('filters', JSON.stringify(filters));
   return get(`/activities?${params.toString()}`);
@@ -27,7 +27,7 @@ export const getCollectionActivities = async (
   chainId: number,
   page: number = 1,
   pageSize: number = 20
-): Promise<PaginatedResponse<Activity>> => {
+): Promise<ActivityApiResponse<Activity>> => {
   return getActivities({
     chainId: [chainId],
     collectionAddresses: [collectionAddress],
@@ -49,7 +49,7 @@ export const getUserActivities = async (
   chainId?: number,
   page: number = 1,
   pageSize: number = 20
-): Promise<PaginatedResponse<Activity>> => {
+): Promise<ActivityApiResponse<Activity>> => {
   return getActivities({
     chainId: chainId ? [chainId] : undefined,
     userAddresses: [userAddress],

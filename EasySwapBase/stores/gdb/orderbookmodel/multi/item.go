@@ -11,10 +11,11 @@ type Item struct {
 	ChainId           int             `gorm:"column:chain_id;default:1;NOT NULL" json:"chain_id"`                                      // 链类型
 	CollectionAddress string          `gorm:"column:collection_address" json:"collection_address"`                                     // 合约地址
 	TokenId           string          `gorm:"column:token_id;NOT NULL" json:"token_id"`                                                // token_id
-	Name              string          `gorm:"column:name;NOT NULL" json:"name"`                                                        // nft名称
+	Name              string          `gorm:"column:name;NOT NULL" json:"name"`                                                        // nft 名称
+	ImageURL          string          `gorm:"column:image_url;type:varchar(512)" json:"image_url"`                                     // NFT 图片 URL
 	Owner             string          `gorm:"column:owner" json:"owner"`                                                               // 拥有者
 	Creator           string          `gorm:"column:creator;NOT NULL" json:"creator"`                                                  // 创建者
-	Supply            int64           `gorm:"column:supply;NOT NULL" json:"supply"`                                                    // item最多可以有多少份
+	Supply            int64           `gorm:"column:supply;NOT NULL" json:"supply"`                                                    // item 最多可以有多少份
 	ListPrice         decimal.Decimal `gorm:"column:list_price" json:"list_price"`                                                     // 上架价格
 	ListTime          int64           `gorm:"column:list_time" json:"list_time"`                                                       // 上架时间
 	SalePrice         decimal.Decimal `gorm:"column:sale_price" json:"sale_price"`                                                     // 销售价格

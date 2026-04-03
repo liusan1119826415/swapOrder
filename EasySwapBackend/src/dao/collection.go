@@ -6,10 +6,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ProjectsTask/EasySwapBase/logger/xzap"
 	"github.com/ProjectsTask/EasySwapBase/ordermanager"
 	"github.com/ProjectsTask/EasySwapBase/stores/gdb/orderbookmodel/multi"
 	"github.com/pkg/errors"
 	"github.com/shopspring/decimal"
+	"go.uber.org/zap"
 
 	"github.com/ProjectsTask/EasySwapBackend/src/types/v1"
 )
@@ -228,12 +230,16 @@ func (d *Dao) QueryMultiChainUserItemInfos(ctx context.Context, chain []string, 
 	var count int64
 	var items []types.PortfolioItemInfo
 
-	// 构建用户地址参数字符串,格式: 'addr1','addr2',...
+	// 构建用户地址参数字符串，格式：'addr1','addr2',...
+	// 如果 userAddrs 为空，则不添加 owner 过滤条件（查询所有 items）
 	var userAddrsParam string
-	for i, addr := range userAddrs {
-		userAddrsParam += fmt.Sprintf(`'%s'`, addr)
-		if i < len(userAddrs)-1 {
-			userAddrsParam += ","
+	hasUserFilter := len(userAddrs) > 0
+	if hasUserFilter {
+		for i, addr := range userAddrs {
+			userAddrsParam += fmt.Sprintf(`'%s'`, addr)
+			if i < len(userAddrs)-1 {
+				userAddrsParam += ","
+			}
 		}
 	}
 
@@ -254,10 +260,11 @@ func (d *Dao) QueryMultiChainUserItemInfos(ctx context.Context, chain []string, 
 			"gi.token_id as token_id, " +
 			"gi.name as name, " +
 			"gi.owner as owner, " +
+			"gi.image_url, " +
 			"sub.last_event_time as owned_time "
 		sqlMid += fmt.Sprintf("from %s gi ", multi.ItemTableName(chainName))
 
-		// 左连接子查询,获取最后交易时间
+		// 左连接子查询，获取最后交易时间
 		sqlMid += "left join "
 		sqlMid += "(select sgi.collection_address, sgi.token_id, " +
 			"max(sga.event_time) as last_event_time "
@@ -265,8 +272,14 @@ func (d *Dao) QueryMultiChainUserItemInfos(ctx context.Context, chain []string, 
 			multi.ItemTableName(chainName), multi.ActivityTableName(chainName))
 		sqlMid += "on sgi.collection_address = sga.collection_address " +
 			"and sgi.token_id = sga.token_id "
-		sqlMid += fmt.Sprintf("where sgi.owner in (%s) and sga.activity_type = %d ",
-			userAddrsParam, multi.Sale)
+
+		// 如果有用户过滤条件，添加 owner 和 activity_type 过滤
+		if hasUserFilter {
+			sqlMid += fmt.Sprintf("where sgi.owner in (%s) and sga.activity_type = %d ",
+				userAddrsParam, multi.Sale)
+		} else {
+			sqlMid += fmt.Sprintf("where sga.activity_type = %d ", multi.Sale)
+		}
 
 		// 如果指定了合约地址,添加合约地址过滤条件
 		if len(contractAddrs) > 0 {
@@ -280,10 +293,18 @@ func (d *Dao) QueryMultiChainUserItemInfos(ctx context.Context, chain []string, 
 		sqlMid += "on gi.collection_address = sub.collection_address " +
 			"and gi.token_id = sub.token_id "
 
-		// 过滤指定用户持有的Item
-		sqlMid += fmt.Sprintf("where gi.owner in (%s) ", userAddrsParam)
-		if len(contractAddrs) > 0 {
-			sqlMid += fmt.Sprintf("and gi.collection_address in ('%s'", contractAddrs[0])
+		// 如果有用户过滤条件，添加 owner 过滤
+		if hasUserFilter {
+			sqlMid += fmt.Sprintf("where gi.owner in (%s) ", userAddrsParam)
+			if len(contractAddrs) > 0 {
+				sqlMid += fmt.Sprintf("and gi.collection_address in ('%s'", contractAddrs[0])
+				for i := 1; i < len(contractAddrs); i++ {
+					sqlMid += fmt.Sprintf(",'%s'", contractAddrs[i])
+				}
+				sqlMid += ")"
+			}
+		} else if len(contractAddrs) > 0 {
+			sqlMid += fmt.Sprintf("where gi.collection_address in ('%s'", contractAddrs[0])
 			for i := 1; i < len(contractAddrs); i++ {
 				sqlMid += fmt.Sprintf(",'%s'", contractAddrs[i])
 			}
@@ -294,7 +315,7 @@ func (d *Dao) QueryMultiChainUserItemInfos(ctx context.Context, chain []string, 
 		sqlMids = append(sqlMids, sqlMid)
 	}
 
-	// 组装完整SQL,使用UNION ALL合并多链结果
+	// 组装完整 SQL，使用 UNION ALL 合并多链结果
 	sqlCnt := sqlCntHead
 	sql := sqlHead
 	for i := 0; i < len(sqlMids); i++ {
@@ -308,12 +329,77 @@ func (d *Dao) QueryMultiChainUserItemInfos(ctx context.Context, chain []string, 
 	sql += sqlTail
 	sqlCnt += ") as combined"
 
-	// 执行SQL查询
+	// 调试打印 SQL 语句（使用项目日志系统）
+	xzap.WithContext(ctx).Debug("QueryMultiChainUserItemInfos SQL",
+		zap.String("count_query", sqlCnt),
+		zap.String("data_query", sql),
+		zap.Any("params", map[string]interface{}{
+			"chain":         chain,
+			"userAddrs":     userAddrs,
+			"contractAddrs": contractAddrs,
+			"page":          page,
+			"pageSize":      pageSize,
+		}),
+	)
+
+	// Debug: 打印 sqlMids 的详细内容
+	for i, sqlMid := range sqlMids {
+		xzap.WithContext(ctx).Debug("QueryMultiChainUserItemInfos - SQL Mid Part",
+			zap.Int("index", i),
+			zap.String("sql_mid", sqlMid),
+		)
+	}
+
+	xzap.WithContext(ctx).Debug("QueryMultiChainUserItemInfos - Final assembled SQL",
+		zap.String("final_count_sql", sqlCnt),
+		zap.String("final_data_sql", sql),
+		zap.Int("sql_mids_count", len(sqlMids)),
+	)
+
+	// 执行 COUNT 查询
+	xzap.WithContext(ctx).Debug("QueryMultiChainUserItemInfos - Executing COUNT query...")
 	if err := d.DB.WithContext(ctx).Raw(sqlCnt).Scan(&count).Error; err != nil {
+		xzap.WithContext(ctx).Error("QueryMultiChainUserItemInfos - COUNT query failed",
+			zap.Error(err),
+			zap.String("sql", sqlCnt),
+		)
 		return nil, 0, errors.Wrap(err, "failed on count user multi chain items")
 	}
+	xzap.WithContext(ctx).Debug("QueryMultiChainUserItemInfos - COUNT result",
+		zap.Int64("count", count),
+	)
+
+	// 执行 DATA 查询
+	xzap.WithContext(ctx).Debug("QueryMultiChainUserItemInfos - Executing DATA query...",
+		zap.Int("limit", pageSize),
+		zap.Int("offset", page-1),
+	)
 	if err := d.DB.WithContext(ctx).Raw(sql).Scan(&items).Error; err != nil {
+		xzap.WithContext(ctx).Error("QueryMultiChainUserItemInfos - DATA query failed",
+			zap.Error(err),
+			zap.String("sql", sql),
+		)
 		return nil, 0, errors.Wrap(err, "failed on get user multi chain items")
+	}
+
+	// Debug: 打印查询到的 item 数量和详情
+	xzap.WithContext(ctx).Debug("QueryMultiChainUserItemInfos - DATA query result",
+		zap.Int("items_length", len(items)),
+		zap.Bool("items_is_nil", items == nil),
+		zap.Int64("count", count),
+	)
+
+	// 打印每个 item 的详细信息
+	for i, item := range items {
+		xzap.WithContext(ctx).Debug("QueryMultiChainUserItemInfos - Item retrieved",
+			zap.Int("index", i),
+			zap.String("collection_address", item.CollectionAddress),
+			zap.String("token_id", item.TokenID),
+			zap.String("name", item.Name),
+			zap.String("owner", item.Owner),
+			zap.String("image_url", item.ImageURL),
+			zap.Int("chain_id", item.ChainID),
+		)
 	}
 
 	return items, count, nil
@@ -347,7 +433,7 @@ func (d *Dao) QueryMultiChainUserListingItemInfos(ctx context.Context, chain []s
 		sqlMid := "("
 		// 查询Item基本信息和最后交易时间
 		sqlMid += "select gi.chain_id as chain_id, gi.collection_address as collection_address, " +
-			"gi.token_id as token_id, gi.name as name, gi.owner as owner, " +
+			"gi.token_id as token_id, gi.name as name, gi.owner as owner, gi.image_url, " +
 			"sub.last_event_time as owned_time "
 		sqlMid += fmt.Sprintf("from %s gi ", multi.ItemTableName(chainName))
 		sqlMid += "left join "
@@ -388,7 +474,7 @@ func (d *Dao) QueryMultiChainUserListingItemInfos(ctx context.Context, chain []s
 		sqlMids = append(sqlMids, sqlMid)
 	}
 
-	// 使用UNION ALL合并多链结果
+	// 使用 UNION ALL 合并多链结果
 	sqlCnt := sqlCntHead
 	sql := sqlHead
 	for i := 0; i < len(sqlMids); i++ {
@@ -402,12 +488,63 @@ func (d *Dao) QueryMultiChainUserListingItemInfos(ctx context.Context, chain []s
 	sql += sqlTail
 	sqlCnt += ") as combined"
 
-	// 执行SQL查询
+	// Debug: 打印完整的 SQL
+	xzap.WithContext(ctx).Debug("QueryMultiChainUserListingItemInfos - Final SQL",
+		zap.String("count_sql", sqlCnt),
+		zap.String("data_sql", sql),
+		zap.Int("sql_mids_count", len(sqlMids)),
+	)
+
+	// 打印每个 sqlMid 部分
+	for i, sqlMid := range sqlMids {
+		xzap.WithContext(ctx).Debug("QueryMultiChainUserListingItemInfos - SQL Mid Part",
+			zap.Int("index", i),
+			zap.String("sql_mid", sqlMid),
+		)
+	}
+
+	// 执行 COUNT 查询
+	xzap.WithContext(ctx).Debug("QueryMultiChainUserListingItemInfos - Executing COUNT query...")
 	if err := d.DB.WithContext(ctx).Raw(sqlCnt).Scan(&count).Error; err != nil {
+		xzap.WithContext(ctx).Error("QueryMultiChainUserListingItemInfos - COUNT failed",
+			zap.Error(err),
+			zap.String("sql", sqlCnt),
+		)
 		return nil, 0, errors.Wrap(err, "failed on count user multi chain items")
 	}
+	xzap.WithContext(ctx).Debug("QueryMultiChainUserListingItemInfos - COUNT result",
+		zap.Int64("count", count),
+	)
+
+	// 执行 DATA 查询
+	xzap.WithContext(ctx).Debug("QueryMultiChainUserListingItemInfos - Executing DATA query...",
+		zap.Int("limit", pageSize),
+		zap.Int("offset", page-1),
+	)
 	if err := d.DB.WithContext(ctx).Raw(sql).Scan(&items).Error; err != nil {
+		xzap.WithContext(ctx).Error("QueryMultiChainUserListingItemInfos - DATA failed",
+			zap.Error(err),
+			zap.String("sql", sql),
+		)
 		return nil, 0, errors.Wrap(err, "failed on get user multi chain items")
+	}
+
+	// Debug: 打印结果
+	xzap.WithContext(ctx).Debug("QueryMultiChainUserListingItemInfos - DATA result",
+		zap.Int("items_length", len(items)),
+		zap.Bool("items_is_nil", items == nil),
+		zap.Int64("count", count),
+	)
+
+	for i, item := range items {
+		xzap.WithContext(ctx).Debug("QueryMultiChainUserListingItemInfos - Item retrieved",
+			zap.Int("index", i),
+			zap.String("collection_address", item.CollectionAddress),
+			zap.String("token_id", item.TokenID),
+			zap.String("name", item.Name),
+			zap.String("owner", item.Owner),
+			zap.Int("chain_id", item.ChainID),
+		)
 	}
 
 	return items, count, nil

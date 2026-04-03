@@ -257,13 +257,41 @@ func (d *Dao) QueryMultiChainActivityExternalInfo(ctx context.Context, chainID [
 	// 存储查询结果的map
 	collections := make(map[string]multi.Collection)
 	itemInfos := make(map[string]multi.Item)
-	itemExternals := make(map[string]multi.ItemExternal)
+	//itemExternals := make(map[string]multi.ItemExternal)
 
 	// 并发查询三类信息
 	var wg sync.WaitGroup
 	var queryErr error
 
 	// 1. 查询items基本信息
+	// wg.Add(1)
+	// go func() {
+	// 	defer wg.Done()
+	// 	var newItems []multi.Item
+	// 	var newItem multi.Item
+
+	// 	for i := 0; i < len(itemQuery); i++ {
+	// 		// SQL: SELECT collection_address, token_id, name
+	// 		// FROM {chain}_items
+	// 		// WHERE (collection_address,token_id) = (?, ?)
+	// 		itemDb := d.DB.WithContext(ctx).
+	// 			Table(multi.ItemTableName(items[i][2])).
+	// 			Select("collection_address, token_id, name").
+	// 			Where("(collection_address,token_id) = ?", itemQuery[i])
+	// 		if err := itemDb.Scan(&newItem).Error; err != nil {
+	// 			queryErr = errors.Wrap(err, "failed on query items info")
+	// 			return
+	// 		}
+
+	// 		newItems = append(newItems, newItem)
+	// 	}
+
+	// 	for _, item := range newItems {
+	// 		itemInfos[strings.ToLower(item.CollectionAddress+item.TokenId)] = item
+	// 	}
+	// }()
+
+	// 2. 查询items外部信息(图片等)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -271,40 +299,12 @@ func (d *Dao) QueryMultiChainActivityExternalInfo(ctx context.Context, chainID [
 		var newItem multi.Item
 
 		for i := 0; i < len(itemQuery); i++ {
-			// SQL: SELECT collection_address, token_id, name
-			// FROM {chain}_items
-			// WHERE (collection_address,token_id) = (?, ?)
-			itemDb := d.DB.WithContext(ctx).
-				Table(multi.ItemTableName(items[i][2])).
-				Select("collection_address, token_id, name").
-				Where("(collection_address,token_id) = ?", itemQuery[i])
-			if err := itemDb.Scan(&newItem).Error; err != nil {
-				queryErr = errors.Wrap(err, "failed on query items info")
-				return
-			}
-
-			newItems = append(newItems, newItem)
-		}
-
-		for _, item := range newItems {
-			itemInfos[strings.ToLower(item.CollectionAddress+item.TokenId)] = item
-		}
-	}()
-
-	// 2. 查询items外部信息(图片等)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		var newItems []multi.ItemExternal
-		var newItem multi.ItemExternal
-
-		for i := 0; i < len(itemQuery); i++ {
 			// SQL: SELECT collection_address, token_id, is_uploaded_oss, image_uri, oss_uri
 			// FROM {chain}_item_externals
 			// WHERE (collection_address, token_id) = (?, ?)
 			itemDb := d.DB.WithContext(ctx).
-				Table(multi.ItemExternalTableName(items[i][2])).
-				Select("collection_address, token_id, is_uploaded_oss, image_uri, oss_uri").
+				Table(multi.ItemTableName(items[i][2])).
+				Select("collection_address,name, token_id, image_url").
 				Where("(collection_address, token_id) = ?", itemQuery[i])
 			if err := itemDb.Scan(&newItem).Error; err != nil {
 				queryErr = errors.Wrap(err, "failed on query items info")
@@ -315,7 +315,7 @@ func (d *Dao) QueryMultiChainActivityExternalInfo(ctx context.Context, chainID [
 		}
 
 		for _, item := range newItems {
-			itemExternals[strings.ToLower(item.CollectionAddress+item.TokenId)] = item
+			itemInfos[strings.ToLower(item.CollectionAddress+item.TokenId)] = item
 		}
 	}()
 
@@ -332,7 +332,7 @@ func (d *Dao) QueryMultiChainActivityExternalInfo(ctx context.Context, chainID [
 			// WHERE address = ?
 			if err := d.DB.WithContext(ctx).
 				Table(multi.CollectionTableName(collectionAddrs[i][1])).
-				Select("id, name, address, image_uri").
+				Select("id, name, address").
 				Where("address = ?", collectionAddrs[i][0]).
 				Scan(&coll).Error; err != nil {
 				queryErr = errors.Wrap(err, "failed on query collections info")
@@ -390,26 +390,17 @@ func (d *Dao) QueryMultiChainActivityExternalInfo(ctx context.Context, chainID [
 		item, ok := itemInfos[strings.ToLower(act.CollectionAddress+act.TokenId)]
 		if ok {
 			activity.ItemName = item.Name
+			activity.ImageURI = item.ImageURL
 		}
 		if activity.ItemName == "" {
 			activity.ItemName = fmt.Sprintf("#%s", act.TokenId)
-		}
-
-		// 设置item图片
-		itemExternal, ok := itemExternals[strings.ToLower(act.CollectionAddress+act.TokenId)]
-		if ok {
-			imageUri := itemExternal.ImageUri
-			if itemExternal.IsUploadedOss {
-				imageUri = itemExternal.OssUri
-			}
-			activity.ImageURI = imageUri
 		}
 
 		// 设置collection信息
 		collection, ok := collections[strings.ToLower(act.CollectionAddress)]
 		if ok {
 			activity.CollectionName = collection.Name
-			activity.CollectionImageURI = collection.ImageUri
+			//activity.CollectionImageURI = collection.ImageUri
 		}
 
 		results = append(results, activity)

@@ -30,7 +30,8 @@ body {
   background: #1c1b1b;
 }
 
-::-webkit-scrollbar-thumb {
+
+-scrollbar-thumb {
   background: #4d4354;
   border-radius: 4px;
 }

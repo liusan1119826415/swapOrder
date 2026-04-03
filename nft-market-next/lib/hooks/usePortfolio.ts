@@ -5,6 +5,7 @@ import {
   getUserListings,
   getUserBids,
   getPortfolioOverview,
+  getAllItems,
 } from '@/lib/api/portfolio';
 import type { PortfolioFilterParams } from '@/types';
 
@@ -59,7 +60,26 @@ export const useUserItems = (filters: PortfolioFilterParams) => {
       return undefined;
     },
     initialPageParam: 1,
-    enabled: filters.userAddresses.length > 0,
+    enabled: filters.user_addresses.length > 0,
+  });
+};
+
+/**
+ * 获取所有 NFT Items（不限用户）
+ */
+export const useAllItems = (filters: Omit<PortfolioFilterParams, 'user_addresses'> & { chain_id?: number[] }) => {
+  return useInfiniteQuery({
+    queryKey: ['all-items', filters],
+    queryFn: ({ pageParam = 1 }) =>
+      getAllItems({ ...filters, page: pageParam }),
+    getNextPageParam: (lastPage) => {
+      if (lastPage.hasMore) {
+        return lastPage.page + 1;
+      }
+      return undefined;
+    },
+    initialPageParam: 1,
+    enabled: filters.chain_id && filters.chain_id.length > 0,
   });
 };
 
@@ -78,7 +98,7 @@ export const useUserListings = (filters: PortfolioFilterParams) => {
       return undefined;
     },
     initialPageParam: 1,
-    enabled: filters.userAddresses.length > 0,
+    enabled: filters.user_addresses.length > 0,
   });
 };
 
@@ -97,6 +117,6 @@ export const useUserBids = (filters: PortfolioFilterParams) => {
       return undefined;
     },
     initialPageParam: 1,
-    enabled: filters.userAddresses.length > 0,
+    enabled: filters.user_addresses.length > 0,
   });
 };

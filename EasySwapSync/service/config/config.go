@@ -26,9 +26,10 @@ type ChainCfg struct {
 }
 
 type ContractCfg struct {
-	EthAddress  string `toml:"eth_address" mapstructure:"eth_address" json:"eth_address"`
-	WethAddress string `toml:"weth_address" mapstructure:"weth_address" json:"weth_address"`
-	DexAddress  string `toml:"dex_address" mapstructure:"dex_address" json:"dex_address"`
+	EthAddress   string   `toml:"eth_address" mapstructure:"eth_address" json:"eth_address"`
+	WethAddress  string   `toml:"weth_address" mapstructure:"weth_address" json:"weth_address"`
+	DexAddress   string   `toml:"dex_address" mapstructure:"dex_address" json:"dex_address"`
+	NFTAddresses []string `toml:"nft_addresses" mapstructure:"nft_addresses" json:"nft_addresses"` // 需要监听的 NFT 合约地址列表
 }
 
 type Monitor struct {

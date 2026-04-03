@@ -36,6 +36,19 @@ export const getUserItems = async (
 };
 
 /**
+ * 获取所有 NFT Items（不限用户）
+ * @param filters 过滤参数（不需要 user_addresses）
+ * @returns NFT Items 列表
+ */
+export const getAllItems = async (
+  filters: Omit<PortfolioFilterParams, 'user_addresses'> & { chain_id?: number[] }
+): Promise<PaginatedResponse<PortfolioItem>> => {
+  const params = new URLSearchParams();
+  params.append('filters', JSON.stringify(filters));
+  return get(`/portfolio/items?${params.toString()}`);
+};
+
+/**
  * 获取用户的挂单列表
  * @param filters 过滤参数
  * @returns 挂单列表
@@ -67,23 +80,5 @@ export const getUserBids = async (
  * @returns Portfolio 概览数据
  */
 export const getPortfolioOverview = async (userAddress: string) => {
-  const [collectionsResult, itemsResult] = await Promise.all([
-    getUserCollections([userAddress]),
-    getUserItems({
-      userAddresses: [userAddress],
-      page: 1,
-      pageSize: 1,
-    }),
-  ]);
-
-  const totalValue = collectionsResult.result.reduce(
-    (sum, item) => sum + parseFloat(item.totalValue || '0'),
-    0
-  );
-
-  return {
-    collections: collectionsResult.result,
-    totalItems: itemsResult.total,
-    totalValue: totalValue.toString(),
-  };
+  return get(`/portfolio/${userAddress}/overview`);
 };

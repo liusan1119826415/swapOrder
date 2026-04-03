@@ -7,64 +7,12 @@ import ActivityTable from '@/components/ui/ActivityTable';
 import { useQuery } from '@tanstack/react-query';
 import { getActivities } from '@/lib/api/activities';
 import type { ActivityFilterParams } from '@/types';
+import { clsx } from 'clsx';
+import { ipfsToHttpUrl } from '@/lib/ipfs';
 
-// 模拟活动数据
-const mockActivities = [
-  {
-    id: '1',
-    event: 'sale' as const,
-    itemName: 'Cybernetic Void #042',
-    itemImage: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=100&h=100&fit=crop',
-    price: '14.85 ETH',
-    priceUsd: '$42,210.50',
-    from: '0x742d...8f3a',
-    to: '0x8f2d...4e9a',
-    time: '2 mins ago',
-  },
-  {
-    id: '2',
-    event: 'list' as const,
-    itemName: 'Ethereal Form III',
-    itemImage: 'https://images.unsplash.com/photo-1634973357973-f2ed2657db3c?w=100&h=100&fit=crop',
-    price: '0.95 ETH',
-    priceUsd: '$2,700.00',
-    from: '0x3a12...99c2',
-    time: '5 mins ago',
-  },
-  {
-    id: '3',
-    event: 'bid' as const,
-    itemName: 'Void Citadel X',
-    itemImage: 'https://images.unsplash.com/photo-1617791160505-6f00504e3519?w=100&h=100&fit=crop',
-    price: '4.20 ETH',
-    priceUsd: '$11,900.00',
-    from: '0x9b4e...2d1f',
-    time: '12 mins ago',
-  },
-  {
-    id: '4',
-    event: 'transfer' as const,
-    itemName: 'Bio-Mechanical v1',
-    itemImage: 'https://images.unsplash.com/photo-1614726365723-49cfae927846?w=100&h=100&fit=crop',
-    from: '0x1c3d...5e7a',
-    to: '0x7f2a...9b3c',
-    time: '1 hour ago',
-  },
-  {
-    id: '5',
-    event: 'sale' as const,
-    itemName: 'Liquid Reality #042',
-    itemImage: 'https://images.unsplash.com/photo-1614728853913-1e221a65777a?w=100&h=100&fit=crop',
-    price: '1.28 ETH',
-    priceUsd: '$3,630.00',
-    from: '0x5d8e...1f4b',
-    to: '0x2a9c...6d8e',
-    time: '2 hours ago',
-  },
-];
 
 const eventTypes = ['All Events', 'Sales', 'Listings', 'Bids', 'Transfers'];
-const chains = ['All Chains', 'Ethereum', 'Polygon', 'Arbitrum', 'Optimism'];
+const chains = ['All Chains', 'Ethereum', 'Polygon', 'Sepolia', 'Optimism'];
 
 // 事件类型映射
 const eventTypesMap: Record<string, string> = {
@@ -80,13 +28,14 @@ const chainsMap: Record<string, number> = {
   'All Chains': 0,
   'Ethereum': 1,
   'Polygon': 137,
-  'Arbitrum': 42161,
+  'Sepolia': 11155111,
   'Optimism': 10,
 };
 
 export default function ActivityPage() {
   const [selectedEvent, setSelectedEvent] = useState('All Events');
   const [selectedChain, setSelectedChain] = useState('All Chains');
+  const [timeRange, setTimeRange] = useState('ALL');
   const [page, setPage] = useState(1);
   const pageSize = 20;
 
@@ -106,25 +55,74 @@ export default function ActivityPage() {
     filters.chainId = [chainsMap[selectedChain]];
   }
 
+  // 添加时间范围过滤
+  if (timeRange !== 'ALL') {
+    const now = Math.floor(Date.now() / 1000);
+    let timeRangeSeconds = 0;
+    
+    switch (timeRange) {
+      case '1H':
+        timeRangeSeconds = 3600;
+        break;
+      case '1D':
+        timeRangeSeconds = 86400;
+        break;
+      case '7D':
+        timeRangeSeconds = 604800;
+        break;
+      case '30D':
+        timeRangeSeconds = 2592000;
+        break;
+    }
+    
+    if (timeRangeSeconds > 0) {
+      filters.startTime = now - timeRangeSeconds;
+    }
+  }
+
   // 使用 React Query 获取活动数据
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['activities', filters],
     queryFn: () => getActivities(filters),
   });
 
+  const actdata = data?.data;
+
+
+  // 计算总页数
+  const totalPages = Math.ceil((actdata?.count || 0) / pageSize);
+  const hasMore = page < totalPages;
+
+  // 处理分页变化
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setPage(newPage);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  // 处理时间范围切换
+  const handleTimeRangeChange = (range: string) => {
+    setTimeRange(range);
+    setPage(1); // 重置到第一页
+  };
+
   // 数据转换函数
   const transformActivities = (items: any[]) => {
-    return items.map((item) => ({
-      id: item.id,
-      event: item.event as 'sale' | 'list' | 'transfer' | 'bid',
-      itemName: item.item?.name || 'Unknown Item',
-      itemImage: item.item?.image || '',
+    console.log('Transform input:', items);
+    const itemdata =  items.map((item) => ({
+      id: `${item.collection_address}-${item.token_id}-${item.event_time}`,
+      event: item.event_type as 'sale' | 'list' | 'transfer' | 'bid',
+      itemName: item.item_name || 'Unknown Item',
+      itemImage: item.image_url ? ipfsToHttpUrl(item.image_url) : '',
       price: item.price,
-      priceUsd: item.priceUsd,
-      from: item.from,
-      to: item.to,
-      time: new Date(item.timestamp).toLocaleString(),
+      priceUsd: '', // 需要根据汇率计算
+      from: item.maker,
+      to: item.taker,
+      time: new Date(item.event_time * 1000).toLocaleString(),
     }));
+    console.log('Transform output:', itemdata);
+    return itemdata;
   };
 
   return (
@@ -177,21 +175,20 @@ export default function ActivityPage() {
 
           {/* Time Range */}
           <div className="flex bg-surface-container-low p-1 rounded-full border border-outline-variant/10 ml-auto">
-            <button className="px-4 py-1.5 rounded-full text-xs font-headline font-bold bg-surface-container-high text-on-surface">
-              1H
-            </button>
-            <button className="px-4 py-1.5 rounded-full text-xs font-headline font-bold text-outline hover:text-on-surface transition-colors">
-              1D
-            </button>
-            <button className="px-4 py-1.5 rounded-full text-xs font-headline font-bold text-outline hover:text-on-surface transition-colors">
-              7D
-            </button>
-            <button className="px-4 py-1.5 rounded-full text-xs font-headline font-bold text-outline hover:text-on-surface transition-colors">
-              30D
-            </button>
-            <button className="px-4 py-1.5 rounded-full text-xs font-headline font-bold text-outline hover:text-on-surface transition-colors">
-              ALL
-            </button>
+            {['1H', '1D', '7D', '30D', 'ALL'].map((range) => (
+              <button
+                key={range}
+                onClick={() => handleTimeRangeChange(range)}
+                className={clsx(
+                  'px-4 py-1.5 rounded-full text-xs font-headline font-bold transition-all',
+                  timeRange === range
+                    ? 'bg-surface-container-high text-on-surface'
+                    : 'text-outline hover:text-on-surface'
+                )}
+              >
+                {range}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -208,16 +205,60 @@ export default function ActivityPage() {
               Failed to load activities. Please try again later.
             </div>
           ) : (
-            <ActivityTable activities={transformActivities(data?.items || [])} />
+            <ActivityTable activities={transformActivities(actdata?.result || [])} />
           )}
         </div>
 
         {/* Load More */}
-        <div className="mt-8 flex justify-center">
-          <button className="px-8 py-3 bg-surface-container-high hover:bg-surface-bright text-on-surface font-bold transition-all border border-outline-variant/20 hover:border-primary/50 rounded-full">
-            Load More
-          </button>
-        </div>
+        {totalPages > 1 && (
+          <div className="mt-16 flex justify-center items-center gap-4">
+            <button
+              onClick={() => handlePageChange(page - 1)}
+              disabled={page === 1}
+              className="px-6 py-2 bg-surface-container-high hover:bg-surface-bright text-on-surface font-bold transition-all border border-outline-variant/20 hover:border-primary/50 rounded-full disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-surface-container-high disabled:hover:border-outline-variant/20"
+            >
+              ← Previous
+            </button>
+            
+            <div className="flex items-center gap-2">
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                let pageNum;
+                if (totalPages <= 5) {
+                  pageNum = i + 1;
+                } else if (page <= 3) {
+                  pageNum = i + 1;
+                } else if (page >= totalPages - 2) {
+                  pageNum = totalPages - 4 + i;
+                } else {
+                  pageNum = page - 2 + i;
+                }
+                
+                return (
+                  <button
+                    key={pageNum}
+                    onClick={() => handlePageChange(pageNum)}
+                    className={clsx(
+                      'w-10 h-10 rounded-full font-bold text-sm transition-all',
+                      page === pageNum
+                        ? 'bg-primary text-on-primary shadow-lg shadow-primary/20'
+                        : 'bg-surface-container-high hover:bg-surface-bright text-on-surface'
+                    )}
+                  >
+                    {pageNum}
+                  </button>
+                );
+              })}
+            </div>
+            
+            <button
+              onClick={() => handlePageChange(page + 1)}
+              disabled={page === totalPages}
+              className="px-6 py-2 bg-surface-container-high hover:bg-surface-bright text-on-surface font-bold transition-all border border-outline-variant/20 hover:border-primary/50 rounded-full disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-surface-container-high disabled:hover:border-outline-variant/20"
+            >
+              Next →
+            </button>
+          </div>
+        )}
       </div>
     </MainLayout>
   );

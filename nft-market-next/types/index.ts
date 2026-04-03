@@ -149,6 +149,12 @@ export interface PaginatedResponse<T> {
   hasMore: boolean;
 }
 
+// Activity API Response (backend returns result/count instead of items/total)
+export interface ActivityApiResponse<T> {
+  result: T[];
+  count: number;
+}
+
 // Filter Types
 export interface CollectionFilterParams {
   chainId: number;
@@ -171,21 +177,37 @@ export interface CollectionItemFilterParams {
 }
 
 export interface ActivityFilterParams {
-  chainId?: number[];
-  collectionAddresses?: string[];
-  tokenId?: string;
-  userAddresses?: string[];
-  eventTypes?: string[];
+  chain_id?: number[];
+  collection_addresses?: string[];
+  token_id?: string;
+  user_addresses?: string[];
+  event_types?: string[];
+  start_time?: number;
+  end_time?: number;
   page?: number;
   pageSize?: number;
 }
 
 export interface PortfolioFilterParams {
-  chainId?: number[];
-  userAddresses: string[];
-  collectionAddresses?: string[];
+  chain_id?: number[];
+  user_addresses: string[];
+  collection_addresses?: string[];
   page?: number;
   pageSize?: number;
+}
+
+// Portfolio Overview Types
+export interface PortfolioOverview {
+  result: {
+    total_items: number;
+    total_value: string;
+    collections: number;
+    listed_count: number;
+    bids_count: number;
+    floor_price: string;
+    profit_loss: string;
+    profit_loss_pct: string;
+  };
 }
 
 // Price History
@@ -296,23 +318,24 @@ export interface ArtistsResponse {
 
 // Auctions Types
 export interface AuctionInfo {
-  auctionId: string;
-  itemName: string;
-  imageUri: string;
-  collectionName: string;
-  collectionAddr: string;
-  tokenId: string;
+  auction_id: string;
+  item_name: string;
+  image_uri: string;
+  collection_name: string;
+  collection_addr: string;
+  token_id: string;
   seller: string;
-  highestBidder?: string;
-  currentBid: string;
-  currentBidUsd?: string;
-  reservePrice?: string;
-  startPrice: string;
-  bidCount: number;
-  startTime: number;
-  endTime: number;
+  
+  highest_bidder?: string;
+  current_bid: string;
+  current_bid_usd?: string;
+  reserve_price?: string;
+  start_price: string;
+  bid_count: number;
+  start_time: number;
+  end_time: number;
   status: 'active' | 'ended' | 'cancelled';
-  chainId: number;
+  chain_id: number;
 }
 
 export interface AuctionsFilterParams {

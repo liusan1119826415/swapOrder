@@ -1,0 +1,28 @@
+# EasySwapSync 配置文件示例 - NFT 索引服务
+
+# ... 其他配置保持不变 ...
+
+[contract_cfg]
+# 以太坊代币地址
+eth_address = "0x0000000000000000000000000000000000000000"
+
+# WETH 合约地址
+weth_address = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+
+# OrderBook DEX 合约地址
+dex_address = "0xYourOrderBookContractAddress"
+
+# 【新增】需要监听的 NFT 合约地址列表
+# 这里添加你想要同步 Mint 和 Transfer 事件的 NFT 合约地址
+nft_addresses = [
+    "0xYourTestNFTContractAddress1",  # 测试 NFT 合约 1
+    "0xYourTestNFTContractAddress2",  # 测试 NFT 合约 2
+    # 可以添加多个合约地址
+]
+
+# 示例：Sepolia testnet 的 TestERC721A 合约
+# nft_addresses = [
+#     "0x1234567890123456789012345678901234567890",
+# ]
+
+# ... 其他配置保持不变 ...

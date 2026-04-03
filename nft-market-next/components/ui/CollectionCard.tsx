@@ -32,6 +32,16 @@ export default function CollectionCard({
 }: CollectionCardProps) {
   const isPositive = change24h >= 0;
 
+  // Format creator address: show first 6 and last 4 characters
+  const formatAddress = (address: string) => {
+    if (!address || address === 'Unknown' || address.length < 10) {
+      return address;
+    }
+    return `${address.slice(0, 6)}...${address.slice(-4)}`;
+  };
+
+  const displayCreator = formatAddress(creator);
+
   return (
     <Link
       href={href}
@@ -53,7 +63,7 @@ export default function CollectionCard({
         <div className="flex-1 min-w-0">
           <h4 className="font-headline font-bold text-lg truncate">{name}</h4>
           <p className="text-xs text-outline-variant flex items-center gap-1">
-            by <span className="text-primary hover:underline">{creator}</span>
+            by <span className="text-primary hover:underline" title={creator}>{displayCreator}</span>
             {isVerified && (
               <BadgeCheck className="w-4 h-4 text-secondary fill-secondary" />
             )}

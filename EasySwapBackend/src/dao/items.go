@@ -6,8 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ProjectsTask/EasySwapBase/logger/xzap"
 	"github.com/ProjectsTask/EasySwapBase/stores/gdb/orderbookmodel/multi"
 	"github.com/pkg/errors"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -754,12 +756,21 @@ func (d *Dao) QueryMultiChainUserItemsListInfo(ctx context.Context, userAddrs []
 	itemInfos []MultiChainItemInfo) ([]*CollectionItem, error) {
 	var collectionItems []*CollectionItem
 
-	// 构建用户地址参数字符串: 'addr1','addr2',...
+	// 参数验证：如果 Item 信息为空，直接返回空结果
+	if len(itemInfos) == 0 {
+		return collectionItems, nil
+	}
+
+	// 构建用户地址参数字符串：'addr1','addr2',...
+	// 如果 userAddrs 为空，则不添加 maker 过滤条件（查询所有 listing）
 	var userAddrsParam string
-	for i, addr := range userAddrs {
-		userAddrsParam += fmt.Sprintf(`'%s'`, addr)
-		if i < len(userAddrs)-1 {
-			userAddrsParam += ","
+	hasUserFilter := len(userAddrs) > 0
+	if hasUserFilter {
+		for i, addr := range userAddrs {
+			userAddrsParam += fmt.Sprintf(`'%s'`, addr)
+			if i < len(userAddrs)-1 {
+				userAddrsParam += ","
+			}
 		}
 	}
 
@@ -793,7 +804,7 @@ func (d *Dao) QueryMultiChainUserItemsListInfo(ctx context.Context, userAddrs []
 		sqlMid := "("
 		// 选择字段:Item基本信息、最低挂单价格、市场ID等
 		sqlMid += "select ci.id as id, ci.chain_id as chain_id,"
-		sqlMid += "ci.collection_address as collection_address,ci.token_id as token_id, ci.name as name, ci.owner as owner,"
+		sqlMid += "ci.collection_address as collection_address,ci.token_id as token_id, ci.name as name, ci.owner as owner, ci.image_url,"
 		sqlMid += "min(co.price) as list_price, " +
 			"SUBSTRING_INDEX(GROUP_CONCAT(co.marketplace_id ORDER BY co.price,co.marketplace_id),',', 1) " +
 			"AS market_id, min(co.price) != 0 as listing "
@@ -801,12 +812,18 @@ func (d *Dao) QueryMultiChainUserItemsListInfo(ctx context.Context, userAddrs []
 		sqlMid += fmt.Sprintf("from %s as ci ", multi.ItemTableName(chainName))
 		sqlMid += fmt.Sprintf("join %s co ", multi.OrderTableName(chainName))
 		sqlMid += "on co.collection_address=ci.collection_address and co.token_id=ci.token_id "
-		// 查询条件:匹配集合地址和tokenID、订单类型为listing、状态为active、卖家是Item所有者
+		// 查询条件：匹配集合地址和 tokenID、订单类型为 listing、状态为 active、卖家是 Item 所有者
 		sqlMid += "where (co.collection_address,co.token_id) in "
 		sqlMid += tmpStat
-		sqlMid += fmt.Sprintf("and co.order_type = %d and co.order_status=%d "+
-			"and co.maker = ci.owner and co.maker in (%s) ",
-			multi.ListingOrder, multi.OrderStatusActive, userAddrsParam)
+		if hasUserFilter {
+			sqlMid += fmt.Sprintf("and co.order_type = %d and co.order_status=%d "+
+				"and co.maker = ci.owner and co.maker in (%s) ",
+				multi.ListingOrder, multi.OrderStatusActive, userAddrsParam)
+		} else {
+			sqlMid += fmt.Sprintf("and co.order_type = %d and co.order_status=%d "+
+				"and co.maker = ci.owner ",
+				multi.ListingOrder, multi.OrderStatusActive)
+		}
 		sqlMid += "group by co.collection_address,co.token_id"
 		sqlMid += ")"
 
@@ -840,7 +857,12 @@ func (d *Dao) QueryMultiChainUserItemsExpireListInfo(ctx context.Context, userAd
 	itemInfos []MultiChainItemInfo) ([]*CollectionItem, error) {
 	var collectionItems []*CollectionItem
 
-	// 构建用户地址参数字符串: 'addr1','addr2',...
+	// 参数验证：如果 Item 信息为空，直接返回空结果
+	if len(itemInfos) == 0 {
+		return collectionItems, nil
+	}
+
+	// 构建用户地址参数字符串：'addr1','addr2',...
 	var userAddrsParam string
 	for i, addr := range userAddrs {
 		userAddrsParam += fmt.Sprintf(`'%s'`, addr)
@@ -861,27 +883,29 @@ func (d *Dao) QueryMultiChainUserItemsExpireListInfo(ctx context.Context, userAd
 	}
 	tmpStat += ") "
 
+	xzap.WithContext(ctx).Debug("QueryMultiChainUserItemsExpireListInfo - Building SQL", zap.Int("item_count", len(itemInfos)), zap.Strings("user_addrs", userAddrs))
+
 	// 遍历每个Item构建子查询
 	for _, info := range itemInfos {
 		sqlMid := "("
-		// 选择字段:Item基本信息、最低挂单价格、市场ID等
+		// 选择字段:Item 基本信息、最低挂单价格、市场 ID 等
 		sqlMid += "select ci.id as id, ci.chain_id as chain_id,"
 		sqlMid += "ci.collection_address as collection_address,ci.token_id as token_id, " +
-			"ci.name as name, ci.owner as owner,"
+			"ci.name as name, ci.owner as owner, ci.image_url,"
 		sqlMid += "min(co.price) as list_price, " +
 			"SUBSTRING_INDEX(GROUP_CONCAT(co.marketplace_id ORDER BY co.price,co.marketplace_id),',', 1) " +
 			"AS market_id, min(co.price) != 0 as listing "
 
-		// 关联Item表和订单表
+		// 关联 Item 表和订单表
 		sqlMid += fmt.Sprintf("from %s as ci ", multi.ItemTableName(info.ChainName))
 		sqlMid += fmt.Sprintf("join %s co ", multi.OrderTableName(info.ChainName))
 		sqlMid += "on co.collection_address=ci.collection_address and co.token_id=ci.token_id "
 
 		// 查询条件:
-		// 1. 匹配集合地址和tokenID
-		// 2. 订单类型为listing
-		// 3. 订单状态为active或expired
-		// 4. 卖家是Item所有者且在用户列表中
+		// 1. 匹配集合地址和 tokenID
+		// 2. 订单类型为 listing
+		// 3. 订单状态为 active 或 expired
+		// 4. 卖家是 Item 所有者且在用户列表中
 		sqlMid += "where (co.collection_address,co.token_id) in "
 		sqlMid += tmpStat
 		sqlMid += fmt.Sprintf("and co.order_type = %d and (co.order_status=%d or co.order_status=%d) "+
@@ -890,23 +914,31 @@ func (d *Dao) QueryMultiChainUserItemsExpireListInfo(ctx context.Context, userAd
 		sqlMid += "group by co.collection_address,co.token_id"
 		sqlMid += ")"
 
+		xzap.WithContext(ctx).Debug("QueryMultiChainUserItemsExpireListInfo - SQL for item", zap.String("collection", info.CollectionAddress), zap.String("token_id", info.TokenID), zap.String("chain", info.ChainName), zap.String("sql_mid", sqlMid))
+
 		sqlMids = append(sqlMids, sqlMid)
 	}
 
-	// 使用UNION ALL组合所有子查询
+	// 使用 UNION ALL 组合所有子查询
 	sql := sqlHead
 	for i := 0; i < len(sqlMids); i++ {
 		if i != 0 {
-			sql += " UNION ALL " // 使用UNION ALL合并结果集
+			sql += " UNION ALL " // 使用 UNION ALL 合并结果集
 		}
 		sql += sqlMids[i]
 	}
 	sql += sqlTail
 
-	// 执行SQL查询
+	// 打印完整 SQL 用于调试
+	xzap.WithContext(ctx).Debug("QueryMultiChainUserItemsExpireListInfo - Complete SQL", zap.String("sql", sql), zap.Strings("user_addrs", userAddrs))
+
+	// 执行 SQL 查询
+	xzap.WithContext(ctx).Debug("QueryMultiChainUserItemsExpireListInfo - Executing SQL")
 	if err := d.DB.WithContext(ctx).Raw(sql).Scan(&collectionItems).Error; err != nil {
+		xzap.WithContext(ctx).Error("QueryMultiChainUserItemsExpireListInfo - Query failed", zap.Error(err), zap.String("sql", sql))
 		return nil, errors.Wrap(err, "failed on query user multi chain items list info")
 	}
+	xzap.WithContext(ctx).Debug("QueryMultiChainUserItemsExpireListInfo - Query completed", zap.Int("result_count", len(collectionItems)))
 
 	return collectionItems, nil
 }
@@ -1107,6 +1139,7 @@ func (d *Dao) QueryItemInfo(ctx context.Context, chain, collectionAddr, tokenID 
 			"ci.collection_address as collection_address, "+
 			"ci.token_id as token_id, "+
 			"ci.name as name, "+
+			"ci.image_url, "+
 			"ci.owner as owner").
 		Where("ci.collection_address =? and ci.token_id = ? ",
 			collectionAddr, tokenID).
@@ -1207,4 +1240,47 @@ func (d *Dao) QueryItemBids(ctx context.Context, chain string, collectionAddr, t
 	}
 
 	return itemBids, count, nil
+}
+
+// QueryItemImageURLs 查询指定 Collection 和 TokenID 的 NFT 图片 URL
+// 参数:
+// - ctx: 上下文
+// - chain: 链名称
+// - itemInfos: Item 信息列表 (包含 CollectionAddress 和 TokenID)
+// 返回:
+// - map[string]string: key 为 "collection_address:token_id", value 为 image_url
+// - error: 错误信息
+func (d *Dao) QueryItemImageURLs(ctx context.Context, chain string, itemInfos []MultiChainItemInfo) (map[string]string, error) {
+	imageURLs := make(map[string]string)
+
+	// 参数验证：如果 Item 信息为空，直接返回空结果
+	if len(itemInfos) == 0 {
+		return imageURLs, nil
+	}
+
+	// 构建查询条件
+	var conditions []string
+	var args []interface{}
+	for _, info := range itemInfos {
+		conditions = append(conditions, "(collection_address = ? AND token_id = ?)")
+		args = append(args, info.CollectionAddress, info.TokenID)
+	}
+
+	// 执行查询
+	var items []multi.Item
+	if err := d.DB.WithContext(ctx).
+		Table(multi.ItemTableName(chain)).
+		Select("collection_address, token_id, image_url").
+		Where(strings.Join(conditions, " OR "), args...).
+		Find(&items).Error; err != nil {
+		return nil, errors.Wrap(err, "failed on query item image urls")
+	}
+
+	// 构建映射关系
+	for _, item := range items {
+		key := fmt.Sprintf("%s:%s", strings.ToLower(item.CollectionAddress), item.TokenId)
+		imageURLs[key] = item.ImageURL
+	}
+
+	return imageURLs, nil
 }

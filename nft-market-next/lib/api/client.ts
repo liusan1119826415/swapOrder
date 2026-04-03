@@ -1,12 +1,13 @@
 import axios, { AxiosInstance, AxiosError, AxiosRequestConfig } from 'axios';
+import { config } from '@/lib/config';
 
-// API Base URL - 根据实际后端地址配置
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+// API Base URL from configuration
+const API_BASE_URL = config.api.baseUrl;
 
 // 创建 axios 实例
 const apiClient: AxiosInstance = axios.create({
-  baseURL: `${API_BASE_URL}/api/v1`,
-  timeout: 30000,
+  baseURL: `${API_BASE_URL}/api/${config.api.version}`,
+  timeout: config.api.timeout,
   headers: {
     'Content-Type': 'application/json',
   },

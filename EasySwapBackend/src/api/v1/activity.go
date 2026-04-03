@@ -37,14 +37,28 @@ func ActivityMultiChainHandler(svcCtx *svc.ServerCtx) gin.HandlerFunc {
 
 		// 指定链ID,只查询指定链上的活动
 		var chainName []string
-		for _, id := range filter.ChainID {
-			chainName = append(chainName, chainIDToChain[id])
+		var resolvedChainIDs []int
+		// 如果未指定链ID或链ID包含0(表示所有链),使用所有支持的链
+		if len(filter.ChainID) == 0 || containsZero(filter.ChainID) {
+			for _, chain := range svcCtx.C.ChainSupported {
+				if name := chainIDToChain[chain.ChainID]; name != "" {
+					chainName = append(chainName, name)
+					resolvedChainIDs = append(resolvedChainIDs, chain.ChainID)
+				}
+			}
+		} else {
+			for _, id := range filter.ChainID {
+				if name, ok := chainIDToChain[id]; ok && name != "" {
+					chainName = append(chainName, name)
+					resolvedChainIDs = append(resolvedChainIDs, id)
+				}
+			}
 		}
 
 		res, err := service.GetMultiChainActivities(
 			c.Request.Context(),
 			svcCtx,
-			filter.ChainID,
+			resolvedChainIDs,
 			chainName,
 			filter.CollectionAddresses,
 			filter.TokenID,

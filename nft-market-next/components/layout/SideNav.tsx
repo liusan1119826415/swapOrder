@@ -15,10 +15,12 @@ import {
 import { clsx } from 'clsx';
 
 const navItems = [
-  { label: 'Explore', href: '/explore', icon: Compass },
+  
   { label: 'Collections', href: '/collections', icon: LayoutGrid },
+  { label: 'Portfolio', href: '/portfolio', icon: Compass },
+  { label: 'Activity', href: '/activity', icon: BarChart3 },
   { label: 'Artists', href: '/artists', icon: Palette },
-  { label: 'Analytics', href: '/analytics', icon: BarChart3 },
+  
   { label: 'Favorites', href: '/favorites', icon: Heart },
   { label: 'Settings', href: '/settings', icon: Settings },
 ];
@@ -65,10 +67,12 @@ export default function SideNav() {
       </nav>
 
       <div className="px-6 mt-auto">
-        <button className="w-full bg-surface-container-highest border border-outline-variant/20 text-on-surface font-['Space_Grotesk'] font-bold py-3 rounded-xl hover:bg-surface-bright transition-all active:scale-95 flex items-center justify-center gap-2">
-          <Plus className="w-4 h-4" />
-          Create NFT
-        </button>
+        <Link href="/mint" className="block">
+          <button className="w-full bg-surface-container-highest border border-outline-variant/20 text-on-surface font-['Space_Grotesk'] font-bold py-3 rounded-xl hover:bg-surface-bright transition-all active:scale-95 flex items-center justify-center gap-2">
+            <Plus className="w-4 h-4" />
+            Create NFT
+          </button>
+        </Link>
       </div>
     </aside>
   );

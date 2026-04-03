@@ -46,9 +46,10 @@ type Collection struct {
 	Discord          string          `gorm:"column:discord" json:"discord"`                              // 项目 discord 地址
 	Instagram        string          `gorm:"column:instagram" json:"instagram"`                          // 项目 instagram 地址
 	FloorPrice       decimal.Decimal `gorm:"column:floor_price" json:"floor_price"`
-	SalePrice        decimal.Decimal `gorm:"column:sale_price" json:"sale_price"`                       // 整个collection中item的最低的listing价格
-	VolumeTotal      decimal.Decimal `gorm:"column:volume_total" json:"volume_total"`                   // 总交易量
-	ImageUri         string          `gorm:"column:image_uri" json:"image_uri"`                         // 项目封面图的链接
+	SalePrice        decimal.Decimal `gorm:"column:sale_price" json:"sale_price"`     // 整个collection中item的最低的listing价格
+	VolumeTotal      decimal.Decimal `gorm:"column:volume_total" json:"volume_total"` // 总交易量
+	ImageUri         string          `gorm:"column:image_uri" json:"image_uri"`
+	ImageURL         string          `gorm:"column:image_url" json:"image_url"`                         // 项目封面图的链接
 	BannerUri        string          `gorm:"column:banner_uri" json:"banner_uri"`                       // banner image uri
 	OpenseaBanScan   int             `gorm:"column:opensea_ban_scan;default:0" json:"opensea_ban_scan"` // （0.未扫描 1扫描过）
 	IsSyncing        int             `gorm:"column:is_syncing;default:0;NOT NULL" json:"is_syncing"`

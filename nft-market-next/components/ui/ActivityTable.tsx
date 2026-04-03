@@ -59,7 +59,7 @@ export default function ActivityTable({ activities, className }: ActivityTablePr
               >
                 <td className="px-4 py-5 first:rounded-l-2xl">
                   <div className="flex items-center gap-3">
-                    <Icon className={clsx('text-lg', eventColors[activity.event])} />
+                    {/* <Icon className={clsx('text-lg', eventColors[activity.event])} /> */}
                     <span className="font-bold capitalize">{activity.event}</span>
                   </div>
                 </td>

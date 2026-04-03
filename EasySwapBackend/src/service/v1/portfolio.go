@@ -6,10 +6,13 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/ProjectsTask/EasySwapBase/logger/xzap"
 	"github.com/ProjectsTask/EasySwapBase/stores/gdb/orderbookmodel/multi"
 	"github.com/pkg/errors"
 	"github.com/shopspring/decimal"
+	"go.uber.org/zap"
 
 	"github.com/ProjectsTask/EasySwapBackend/src/dao"
 	"github.com/ProjectsTask/EasySwapBackend/src/service/svc"
@@ -119,18 +122,70 @@ func GetMultiChainUserCollections(ctx context.Context, svcCtx *svc.ServerCtx, ch
 	}, nil
 }
 
-// GetMultiChainUserItems 查询用户拥有nft的Item基本信息，list信息和bid信息，从Item表和Activity表中查询
+// GetMultiChainUserItems 查询用户拥有 nft 的 Item 基本信息，list 信息和 bid 信息，从 Item 表和 Activity 表中查询
 func GetMultiChainUserItems(ctx context.Context, svcCtx *svc.ServerCtx, chainID []int, chain []string, userAddrs []string, contractAddrs []string, page, pageSize int) (*types.UserItemsResp, error) {
-	// 1.
+	// 1. 查询用户 Item 基础信息
+	xzap.WithContext(ctx).Debug("GetMultiChainUserItems - Step 1: Querying user items",
+		zap.Any("chainID", chainID),
+		zap.Any("chain", chain),
+		zap.Any("userAddrs", userAddrs),
+		zap.Any("contractAddrs", contractAddrs),
+		zap.Int("page", page),
+		zap.Int("pageSize", pageSize),
+	)
+
 	items, count, err := svcCtx.Dao.QueryMultiChainUserItemInfos(ctx, chain, userAddrs, contractAddrs, page, pageSize)
 	if err != nil {
+		xzap.WithContext(ctx).Error("GetMultiChainUserItems - Failed to query user items",
+			zap.Error(err),
+		)
 		return nil, errors.Wrap(err, "failed on get user items info")
 	}
 
-	// 如果没有Item,直接返回空结果
+	// Debug: 打印查询结果
+	xzap.WithContext(ctx).Debug("GetMultiChainUserItems - Query result",
+		zap.Int64("count", count),
+		zap.Int("items_length", len(items)),
+		zap.Any("items_nil", items == nil),
+	)
+
+	// 打印每个 item 的详细信息
+	for i, item := range items {
+		xzap.WithContext(ctx).Debug("GetMultiChainUserItems - Item detail",
+			zap.Int("index", i),
+			zap.String("collection_address", item.CollectionAddress),
+			zap.String("token_id", item.TokenID),
+			zap.String("name", item.Name),
+			zap.String("owner", item.Owner),
+			zap.Int("chain_id", item.ChainID),
+		)
+	}
+
+	// 如果没有 Item，直接返回空结果
 	if count == 0 {
+		xzap.WithContext(ctx).Warn("GetMultiChainUserItems - Count is 0, returning empty result")
 		return &types.UserItemsResp{
 			Result: items,
+			Count:  count,
+		}, nil
+	}
+
+	// 如果 count > 0 但 items 为空或 nil，这是异常情况
+	if count > 0 && (items == nil || len(items) == 0) {
+		xzap.WithContext(ctx).Error("GetMultiChainUserItems - CRITICAL: count > 0 but items is empty!",
+			zap.Int64("count", count),
+			zap.Bool("items_is_nil", items == nil),
+			zap.Int("items_length", len(items)),
+			zap.Any("query_params", map[string]interface{}{
+				"chain":     chain,
+				"userAddrs": userAddrs,
+				"page":      page,
+				"pageSize":  pageSize,
+			}),
+		)
+		// 返回一个空的 result 但保留 count
+		return &types.UserItemsResp{
+			Result: []types.PortfolioItemInfo{},
 			Count:  count,
 		}, nil
 	}
@@ -284,17 +339,6 @@ func GetMultiChainUserItems(ctx context.Context, svcCtx *svc.ServerCtx, chainID 
 		}
 	}
 
-	// 11. 查询Item图片信息
-	itemImages, err := svcCtx.Dao.QueryMultiChainCollectionsItemsImage(ctx, itemInfos)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed on query item image info")
-	}
-
-	itemExternals := make(map[string]multi.ItemExternal)
-	for _, item := range itemImages {
-		itemExternals[strings.ToLower(item.CollectionAddress+item.TokenId)] = item
-	}
-
 	// 12. 组装最终结果
 	for i := 0; i < len(items); i++ {
 		// 设置出价信息
@@ -360,15 +404,6 @@ func GetMultiChainUserItems(ctx context.Context, svcCtx *svc.ServerCtx, chainID 
 			items[i].ListMaker = order.Maker
 		}
 
-		// 设置图片信息
-		image, ok := itemExternals[strings.ToLower(items[i].CollectionAddress+items[i].TokenID)]
-		if ok {
-			if image.IsUploadedOss {
-				items[i].ImageURI = image.OssUri
-			} else {
-				items[i].ImageURI = image.ImageUri
-			}
-		}
 	}
 
 	return &types.UserItemsResp{
@@ -380,74 +415,189 @@ func GetMultiChainUserItems(ctx context.Context, svcCtx *svc.ServerCtx, chainID 
 // GetMultiChainUserListings 获取用户在多条链上的挂单信息
 func GetMultiChainUserListings(ctx context.Context, svcCtx *svc.ServerCtx, chainID []int, chain []string, userAddrs []string, contractAddrs []string, page, pageSize int) (*types.UserListingsResp, error) {
 	var result []types.Listing
-	// 1. 查询用户挂单Item基本信息
+
+	// Debug: 打印请求参数
+	xzap.WithContext(ctx).Info("GetMultiChainUserListings - Step 1: Received request",
+		zap.Any("chainID", chainID),
+		zap.Any("chain", chain),
+		zap.Any("userAddrs", userAddrs),
+		zap.Any("contractAddrs", contractAddrs),
+		zap.Int("page", page),
+		zap.Int("pageSize", pageSize),
+	)
+
+	// 1. 查询用户挂单 Item 基本信息
+	xzap.WithContext(ctx).Debug("GetMultiChainUserListings - Step 2: Querying database for user listings...")
 	items, count, err := svcCtx.Dao.QueryMultiChainUserListingItemInfos(ctx, chain, userAddrs, contractAddrs, page, pageSize)
 	if err != nil {
+		xzap.WithContext(ctx).Error("GetMultiChainUserListings - Step 2: Failed to query listings",
+			zap.String("error", err.Error()),
+			zap.Any("params", map[string]interface{}{
+				"chain":         chain,
+				"userAddrs":     userAddrs,
+				"contractAddrs": contractAddrs,
+			}),
+		)
 		return nil, errors.Wrap(err, "failed on get user items info")
 	}
 
-	// 如果没有挂单,直接返回空结果
+	// Debug: 打印查询结果
+	xzap.WithContext(ctx).Info("GetMultiChainUserListings - Step 2: Database query completed",
+		zap.Int64("total_count", count),
+		zap.Int("items_returned", len(items)),
+		zap.Bool("items_is_nil", items == nil),
+	)
+
+	// 打印每个 listing item 的详细信息
+	if len(items) > 0 {
+		xzap.WithContext(ctx).Debug("GetMultiChainUserListings - Step 2: Item details:")
+		for i, item := range items {
+			xzap.WithContext(ctx).Debug(fmt.Sprintf("  Item[%d]:", i),
+				zap.String("collection", item.CollectionAddress),
+				zap.String("token_id", item.TokenID),
+				zap.String("name", item.Name),
+				zap.String("image_url", item.ImageURL),
+				zap.String("owner", item.Owner),
+				zap.Int("chain_id", item.ChainID),
+			)
+		}
+	}
+
+	// 如果没有挂单，直接返回空结果
 	if count == 0 {
+		xzap.WithContext(ctx).Warn("GetMultiChainUserListings - Step 3: No listings found, returning empty result")
 		return &types.UserListingsResp{
 			Count: count,
 		}, nil
 	}
 
-	// 2. 构建chainID到chain name的映射
+	// 如果 count > 0 但 items 为空或 nil，这是异常情况
+	if count > 0 && (items == nil || len(items) == 0) {
+		xzap.WithContext(ctx).Error("GetMultiChainUserListings - Step 3: CRITICAL - count > 0 but items is empty!",
+			zap.Int64("count", count),
+			zap.Bool("items_is_nil", items == nil),
+			zap.Int("items_length", len(items)),
+			zap.Any("query_params", map[string]interface{}{
+				"chain":         chain,
+				"userAddrs":     userAddrs,
+				"contractAddrs": contractAddrs,
+				"page":          page,
+				"pageSize":      pageSize,
+			}),
+		)
+		// 返回一个空的 result 但保留 count
+		return &types.UserListingsResp{
+			Result: []types.Listing{},
+			Count:  count,
+		}, nil
+	}
+
+	// 2. 构建 chainID 到 chain name 的映射
+	xzap.WithContext(ctx).Debug("GetMultiChainUserListings - Step 4: Building chain ID to chain name mapping")
 	chainIDToChainName := make(map[int]string)
 	for i, _ := range chainID {
 		chainIDToChainName[chainID[i]] = chain[i]
 	}
+	xzap.WithContext(ctx).Debug("GetMultiChainUserListings - Step 4: Chain mapping completed",
+		zap.Any("chainIDToChainName", chainIDToChainName),
+	)
 
 	// 3. 获取用户地址
+	xzap.WithContext(ctx).Debug("GetMultiChainUserListings - Step 5: Preparing query parameters")
 	var userAddr string
 	if len(userAddrs) == 0 {
 		userAddr = ""
 	} else {
 		userAddr = userAddrs[0]
 	}
+	xzap.WithContext(ctx).Debug("GetMultiChainUserListings - Step 5: User address determined",
+		zap.String("userAddr", userAddr),
+	)
 
 	// 4. 准备查询参数
-	var collectionAddrs [][]string                          // Collection地址和链名称对
-	var itemInfos []dao.MultiChainItemInfo                  // Item信息
-	var chainCollections = make(map[string][]string)        // 按链分组的Collection地址
-	var multichainItems = make(map[string][]types.ItemInfo) // 按链分组的Item信息
+	var collectionAddrs [][]string                          // Collection 地址和链名称对
+	var itemInfos []dao.MultiChainItemInfo                  // Item 信息
+	var chainCollections = make(map[string][]string)        // 按链分组的 Collection 地址
+	var multichainItems = make(map[string][]types.ItemInfo) // 按链分组的 Item 信息
 
-	// 遍历Item,构建查询参数
-	for _, item := range items {
-		collectionAddrs = append(collectionAddrs, []string{strings.ToLower(item.CollectionAddress), chainIDToChainName[item.ChainID]})
+	// 遍历 Item，构建查询参数
+	xzap.WithContext(ctx).Debug("GetMultiChainUserListings - Step 6: Building query parameters from items")
+	for idx, item := range items {
+		chainName := chainIDToChainName[item.ChainID]
+		collectionAddrs = append(collectionAddrs, []string{strings.ToLower(item.CollectionAddress), chainName})
 		itemInfos = append(itemInfos, dao.MultiChainItemInfo{
 			ItemInfo: types.ItemInfo{
 				CollectionAddress: item.CollectionAddress,
 				TokenID:           item.TokenID,
 			},
-			ChainName: chainIDToChainName[item.ChainID],
+			ChainName: chainName,
 		})
 
-		chainCollections[strings.ToLower(chainIDToChainName[item.ChainID])] = append(chainCollections[strings.ToLower(chainIDToChainName[item.ChainID])], item.CollectionAddress)
-		multichainItems[chainIDToChainName[item.ChainID]] = append(multichainItems[chainIDToChainName[item.ChainID]], types.ItemInfo{
+		chainCollections[strings.ToLower(chainName)] = append(chainCollections[strings.ToLower(chainName)], item.CollectionAddress)
+		multichainItems[chainName] = append(multichainItems[chainName], types.ItemInfo{
 			CollectionAddress: item.CollectionAddress,
 			TokenID:           item.TokenID,
 		})
+
+		xzap.WithContext(ctx).Debug(fmt.Sprintf("GetMultiChainUserListings - Step 6: Processed item[%d]", idx),
+			zap.String("chain", chainName),
+			zap.String("collection", item.CollectionAddress),
+			zap.String("token_id", item.TokenID),
+		)
 	}
 
-	// 5. 记录Item最近成本
+	xzap.WithContext(ctx).Info("GetMultiChainUserListings - Step 6: Query parameters built",
+		zap.Int("total_items", len(items)),
+		zap.Int("unique_chains", len(chainCollections)),
+		zap.Any("chain_summary", func() map[string]int {
+			summary := make(map[string]int)
+			for chainName, addrs := range chainCollections {
+				summary[chainName] = len(addrs)
+			}
+			return summary
+		}()),
+	)
+
+	// 5. 记录 Item 最近成本
+	xzap.WithContext(ctx).Debug("GetMultiChainUserListings - Step 7: Initializing item last cost map")
 	itemLastCost := make(map[dao.MultiChainItemInfo]decimal.Decimal)
 
-	// 6. 并发查询Collection最高出价信息
+	// 6. 并发查询 Collection 最高出价信息
+	xzap.WithContext(ctx).Info("GetMultiChainUserListings - Step 8: Starting concurrent queries for collection best bids",
+		zap.Int("total_chains", len(chainCollections)),
+	)
 	collectionBestBids := make(map[types.MultichainCollection]multi.Order)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var queryErr error
+
+	queryStart := time.Now()
 	for chain, collections := range chainCollections {
 		wg.Add(1)
+		xzap.WithContext(ctx).Debug(fmt.Sprintf("GetMultiChainUserListings - Step 8: Launching goroutine for chain: %s", chain),
+			zap.Int("collections_count", len(collections)),
+		)
 		go func(chainName string, collectionArray []string) {
 			defer wg.Done()
+			goroutineStart := time.Now()
 			bestBids, err := svcCtx.Dao.QueryCollectionsBestBid(ctx, chainName, userAddr, collectionArray)
+			duration := time.Since(goroutineStart)
+
 			if err != nil {
+				xzap.WithContext(ctx).Error("GetMultiChainUserListings - Step 8: Failed to query collection best bids",
+					zap.String("chain", chainName),
+					zap.Duration("duration", duration),
+					zap.Error(err),
+				)
 				queryErr = errors.Wrap(err, "failed on query collections best bids")
 				return
 			}
+
+			xzap.WithContext(ctx).Debug(fmt.Sprintf("GetMultiChainUserListings - Step 8: Collection bids queried for %s", chainName),
+				zap.Int("bids_count", len(bestBids)),
+				zap.Duration("duration", duration),
+			)
+
 			mu.Lock()
 			defer mu.Unlock()
 			for _, bestBid := range bestBids {
@@ -458,22 +608,37 @@ func GetMultiChainUserListings(ctx context.Context, svcCtx *svc.ServerCtx, chain
 			}
 		}(chain, collections)
 	}
+
+	xzap.WithContext(ctx).Debug("GetMultiChainUserListings - Step 8: Waiting for all collection bid queries to complete...")
 	wg.Wait()
+	totalDuration := time.Since(queryStart)
+	xzap.WithContext(ctx).Info("GetMultiChainUserListings - Step 8: All collection bid queries completed",
+		zap.Duration("total_duration", totalDuration),
+		zap.Int("collections_queried", len(collectionBestBids)),
+	)
+
 	if queryErr != nil {
-		return nil, errors.Wrap(err, "failed on query collection bids")
+		xzap.WithContext(ctx).Error("GetMultiChainUserListings - Step 8: Query failed",
+			zap.Error(queryErr),
+		)
+		return nil, errors.Wrap(queryErr, "failed on query collection bids")
 	}
 
 	// 7. 并发查询Item最高出价信息
+	xzap.WithContext(ctx).Debug("QueryItemsBestBids start", zap.Int("multichainItems_count", len(multichainItems)))
 	itemsBestBids := make(map[dao.MultiChainItemInfo]multi.Order)
 	for chain, items := range multichainItems {
 		wg.Add(1)
 		go func(chainName string, itemInfos []types.ItemInfo) {
 			defer wg.Done()
+			xzap.WithContext(ctx).Debug("QueryItemsBestBids for chain", zap.String("chain", chainName), zap.Int("item_count", len(itemInfos)))
 			bids, err := svcCtx.Dao.QueryItemsBestBids(ctx, chainName, userAddr, itemInfos)
 			if err != nil {
+				xzap.WithContext(ctx).Debug("QueryItemsBestBids error", zap.String("chain", chainName), zap.Error(err))
 				queryErr = errors.Wrap(err, "failed on query items best bids")
 				return
 			}
+			xzap.WithContext(ctx).Debug("QueryItemsBestBids success", zap.String("chain", chainName), zap.Int("bid_count", len(bids)))
 
 			mu.Lock()
 			defer mu.Unlock()
@@ -490,15 +655,19 @@ func GetMultiChainUserListings(ctx context.Context, svcCtx *svc.ServerCtx, chain
 		}(chain, items)
 	}
 	wg.Wait()
+	xzap.WithContext(ctx).Debug("QueryItemsBestBids completed", zap.Int("itemsBestBids_count", len(itemsBestBids)))
 	if queryErr != nil {
 		return nil, errors.Wrap(err, "failed on query items best bids")
 	}
 
 	// 8. 查询Collection基本信息
+	xzap.WithContext(ctx).Debug("QueryMultiChainCollectionsInfo start", zap.Int("collectionAddrs_count", len(collectionAddrs)))
 	collections, err := svcCtx.Dao.QueryMultiChainCollectionsInfo(ctx, collectionAddrs)
 	if err != nil {
+		xzap.WithContext(ctx).Debug("QueryMultiChainCollectionsInfo error", zap.Error(err))
 		return nil, errors.Wrap(err, "failed on query collections info")
 	}
+	xzap.WithContext(ctx).Debug("QueryMultiChainCollectionsInfo success", zap.Int("collections_count", len(collections)))
 
 	collectionInfos := make(map[string]multi.Collection)
 	for _, collection := range collections {
@@ -506,10 +675,13 @@ func GetMultiChainUserListings(ctx context.Context, svcCtx *svc.ServerCtx, chain
 	}
 
 	// 9. 查询用户Item挂单信息
+	xzap.WithContext(ctx).Debug("QueryMultiChainUserItemsExpireListInfo start", zap.Int("userAddrs_count", len(userAddrs)), zap.Int("itemInfos_count", len(itemInfos)))
 	listings, err := svcCtx.Dao.QueryMultiChainUserItemsExpireListInfo(ctx, userAddrs, itemInfos)
 	if err != nil {
+		xzap.WithContext(ctx).Debug("QueryMultiChainUserItemsExpireListInfo error", zap.Error(err))
 		return nil, errors.Wrap(err, "failed on query item list info")
 	}
+	xzap.WithContext(ctx).Debug("QueryMultiChainUserItemsExpireListInfo success", zap.Int("listings_count", len(listings)))
 
 	listingInfos := make(map[string]*dao.CollectionItem)
 	for _, listing := range listings {
@@ -517,6 +689,7 @@ func GetMultiChainUserListings(ctx context.Context, svcCtx *svc.ServerCtx, chain
 	}
 
 	// 10. 查询挂单订单信息
+	xzap.WithContext(ctx).Debug("Build itemPrice for listing orders", zap.Int("listingInfos_count", len(listingInfos)))
 	var itemPrice []dao.MultiChainItemPriceInfo
 	for _, item := range listingInfos {
 		if item.Listing {
@@ -532,43 +705,42 @@ func GetMultiChainUserListings(ctx context.Context, svcCtx *svc.ServerCtx, chain
 			})
 		}
 	}
+	xzap.WithContext(ctx).Debug("itemPrice built", zap.Int("itemPrice_count", len(itemPrice)))
 
 	orderIds := make(map[string]multi.Order)
 	if len(itemPrice) > 0 {
+		xzap.WithContext(ctx).Debug("QueryMultiChainListingInfo start", zap.Int("itemPrice_count", len(itemPrice)))
 		orders, err := svcCtx.Dao.QueryMultiChainListingInfo(ctx, itemPrice)
 		if err != nil {
+			xzap.WithContext(ctx).Debug("QueryMultiChainListingInfo error", zap.Error(err))
 			return nil, errors.Wrap(err, "failed on query item order id")
 		}
+		xzap.WithContext(ctx).Debug("QueryMultiChainListingInfo success", zap.Int("orders_count", len(orders)))
 
 		for _, order := range orders {
 			orderIds[strings.ToLower(order.CollectionAddress+order.TokenId)] = order
 		}
-	}
-
-	// 11. 查询Item图片信息
-	itemImages, err := svcCtx.Dao.QueryMultiChainCollectionsItemsImage(ctx, itemInfos)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed on query item image info")
-	}
-
-	itemExternals := make(map[string]multi.ItemExternal)
-	for _, item := range itemImages {
-		itemExternals[strings.ToLower(item.CollectionAddress+item.TokenId)] = item
+	} else {
+		xzap.WithContext(ctx).Debug("Skip QueryMultiChainListingInfo, itemPrice is empty")
 	}
 
 	// 12. 组装最终结果
+	xzap.WithContext(ctx).Debug("Start assembling final result", zap.Int("items_count", len(items)), zap.Int("listingInfos_count", len(listingInfos)), zap.Int("collectionInfos_count", len(collectionInfos)), zap.Int("orderIds_count", len(orderIds)), zap.Int("itemsBestBids_count", len(itemsBestBids)))
 	for i := 0; i < len(items); i++ {
 		var resultlisting types.Listing
 		listing, ok := listingInfos[strings.ToLower(items[i].CollectionAddress+items[i].TokenID)]
 		if ok {
 			resultlisting.ListPrice = listing.ListPrice
 			resultlisting.MarketplaceID = listing.MarketID
+			xzap.WithContext(ctx).Debug("Found listing for item", zap.String("collection", items[i].CollectionAddress), zap.String("token_id", items[i].TokenID))
 		} else {
+			xzap.WithContext(ctx).Debug("No listing found for item, skipping", zap.String("collection", items[i].CollectionAddress), zap.String("token_id", items[i].TokenID))
 			count--
 			continue
 		}
 
 		resultlisting.ChainID = items[i].ChainID
+		resultlisting.ImageURL = items[i].ImageURL
 		resultlisting.CollectionAddress = items[i].CollectionAddress
 		resultlisting.TokenID = items[i].TokenID
 		resultlisting.LastCostPrice = itemLastCost[dao.MultiChainItemInfo{
@@ -582,6 +754,7 @@ func GetMultiChainUserListings(ctx context.Context, svcCtx *svc.ServerCtx, chain
 		// 设置出价信息 - 优先使用Item出价,如果没有则使用Collection出价
 		bidOrder, ok := itemsBestBids[dao.MultiChainItemInfo{ItemInfo: types.ItemInfo{CollectionAddress: strings.ToLower(items[i].CollectionAddress), TokenID: items[i].TokenID}, ChainName: chainIDToChainName[items[i].ChainID]}]
 		if ok {
+			xzap.WithContext(ctx).Debug("Found item best bid", zap.String("collection", items[i].CollectionAddress), zap.String("token_id", items[i].TokenID), zap.String("bid_price", bidOrder.Price.String()))
 			if bidOrder.Price.GreaterThan(collectionBestBids[types.MultichainCollection{
 				CollectionAddress: strings.ToLower(items[i].CollectionAddress),
 				Chain:             chainIDToChainName[items[i].ChainID],
@@ -603,6 +776,7 @@ func GetMultiChainUserListings(ctx context.Context, svcCtx *svc.ServerCtx, chain
 			}]
 
 			if ok {
+				xzap.WithContext(ctx).Debug("Using collection best bid", zap.String("collection", items[i].CollectionAddress), zap.String("token_id", items[i].TokenID), zap.String("bid_price", bidOrder.Price.String()))
 				resultlisting.BidOrderID = bidOrder.OrderID
 				resultlisting.BidExpireTime = bidOrder.ExpireTime
 				resultlisting.BidPrice = bidOrder.Price
@@ -612,6 +786,8 @@ func GetMultiChainUserListings(ctx context.Context, svcCtx *svc.ServerCtx, chain
 				resultlisting.BidType = getBidType(bidOrder.OrderType)
 				resultlisting.BidSize = bidOrder.Size
 				resultlisting.BidUnfilled = bidOrder.QuantityRemaining
+			} else {
+				xzap.WithContext(ctx).Debug("No bid found for item", zap.String("collection", items[i].CollectionAddress), zap.String("token_id", items[i].TokenID))
 			}
 		}
 
@@ -623,6 +799,9 @@ func GetMultiChainUserListings(ctx context.Context, svcCtx *svc.ServerCtx, chain
 				resultlisting.Name = fmt.Sprintf("%s #%s", collection.Name, items[i].TokenID)
 			}
 			resultlisting.FloorPrice = collection.FloorPrice
+			xzap.WithContext(ctx).Debug("Collection info found", zap.String("collection", items[i].CollectionAddress), zap.String("name", collection.Name))
+		} else {
+			xzap.WithContext(ctx).Debug("Collection info not found", zap.String("collection", items[i].CollectionAddress))
 		}
 
 		// 设置订单信息
@@ -632,20 +811,18 @@ func GetMultiChainUserListings(ctx context.Context, svcCtx *svc.ServerCtx, chain
 			resultlisting.ListExpireTime = order.ExpireTime
 			resultlisting.ListMaker = order.Maker
 			resultlisting.ListSalt = order.Salt
+			xzap.WithContext(ctx).Debug("Order info found", zap.String("collection", items[i].CollectionAddress), zap.String("token_id", items[i].TokenID), zap.String("order_id", order.OrderID))
+		} else {
+			xzap.WithContext(ctx).Debug("Order info not found", zap.String("collection", items[i].CollectionAddress), zap.String("token_id", items[i].TokenID))
 		}
 
 		// 设置图片信息
-		image, ok := itemExternals[strings.ToLower(items[i].CollectionAddress+items[i].TokenID)]
-		if ok {
-			if image.IsUploadedOss {
-				resultlisting.ImageURI = image.OssUri
-			} else {
-				resultlisting.ImageURI = image.ImageUri
-			}
-		}
+
 		result = append(result, resultlisting)
+		xzap.WithContext(ctx).Debug("Result item appended", zap.String("collection", items[i].CollectionAddress), zap.String("token_id", items[i].TokenID))
 	}
 
+	xzap.WithContext(ctx).Debug("Final result assembled", zap.Int("result_count", len(result)), zap.Int("count", int(count)))
 	return &types.UserListingsResp{
 		Count:  count,
 		Result: result,
@@ -746,7 +923,7 @@ func GetMultiChainUserBids(ctx context.Context, svcCtx *svc.ServerCtx, chainID [
 		bidsMap[key] = userBid
 	}
 
-	// 3. 查询Collection基本信息
+	// 3. 查询 Collection 基本信息
 	collectionInfos := make(map[string]multi.Collection)
 	for chain, collections := range bidCollections {
 		cs, err := svcCtx.Dao.QueryCollectionsInfo(ctx, chain, removeRepeatedElement(collections))
@@ -759,13 +936,44 @@ func GetMultiChainUserBids(ctx context.Context, svcCtx *svc.ServerCtx, chainID [
 		}
 	}
 
-	// 4. 组装最终结果
+	// 4. 查询 NFT Item 的 image_url
+	itemImageURLs := make(map[string]string)
+	for _, userBid := range bidsMap {
+		key := fmt.Sprintf("%s:%s", strings.ToLower(userBid.CollectionAddress), userBid.TokenID)
+		if _, ok := itemImageURLs[key]; !ok {
+			itemInfos := []dao.MultiChainItemInfo{
+				{ItemInfo: types.ItemInfo{CollectionAddress: userBid.CollectionAddress, TokenID: userBid.TokenID}},
+			}
+			// 找到对应的链名称
+			var chainName string
+			for cn, _ := range bidCollections {
+				chainName = cn
+				break
+			}
+			if chainName != "" {
+				urls, err := svcCtx.Dao.QueryItemImageURLs(ctx, chainName, itemInfos)
+				if err == nil && len(urls) > 0 {
+					for k, v := range urls {
+						itemImageURLs[k] = v
+					}
+				}
+			}
+		}
+	}
+
+	// 5. 组装最终结果
 	var results []types.UserBid
 	for _, userBid := range bidsMap {
-		// 设置Collection名称和图片信息
+		// 设置 Collection 名称和图片信息
 		if c, ok := collectionInfos[fmt.Sprintf("%d:%s", userBid.ChainID, strings.ToLower(userBid.CollectionAddress))]; ok {
 			userBid.CollectionName = c.Name
-			userBid.ImageURI = c.ImageUri
+			userBid.ImageURL = c.ImageURL
+		}
+
+		// 优先使用 Item 级别的 image_url
+		itemKey := fmt.Sprintf("%s:%s", strings.ToLower(userBid.CollectionAddress), userBid.TokenID)
+		if itemURL, ok := itemImageURLs[itemKey]; ok && itemURL != "" {
+			userBid.ImageURL = itemURL
 		}
 
 		results = append(results, userBid)

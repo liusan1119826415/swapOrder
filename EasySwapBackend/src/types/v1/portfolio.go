@@ -51,7 +51,7 @@ type PortfolioMultiChainItemFilterParams struct {
 	UserAddresses       []string `json:"user_addresses"`
 
 	Page     int `json:"page"`
-	PageSize int `json:"page_size"`
+	PageSize int `json:"pageSize"`
 }
 
 type PortfolioMultiChainListingFilterParams struct {
@@ -60,7 +60,7 @@ type PortfolioMultiChainListingFilterParams struct {
 	UserAddresses       []string `json:"user_addresses"`
 
 	Page     int `json:"page"`
-	PageSize int `json:"page_size"`
+	PageSize int `json:"pageSize"`
 }
 
 type PortfolioMultiChainBidFilterParams struct {
@@ -69,7 +69,7 @@ type PortfolioMultiChainBidFilterParams struct {
 	UserAddresses       []string `json:"user_addresses"`
 
 	Page     int `json:"page"`
-	PageSize int `json:"page_size"`
+	PageSize int `json:"pageSize"`
 }
 
 type PortfolioItemInfo struct {
@@ -78,7 +78,7 @@ type PortfolioItemInfo struct {
 	CollectionName     string `json:"collection_name"`
 	CollectionImageURI string `json:"collection_image_uri"`
 	TokenID            string `json:"token_id"`
-	ImageURI           string `json:"image_uri"`
+	ImageURL           string `json:"image_url"`
 
 	LastCostPrice float64         `json:"last_cost_price"`
 	OwnedTime     int64           `json:"owned_time"`
@@ -119,7 +119,7 @@ type UserListingsResp struct {
 type Listing struct {
 	CollectionAddress string          `json:"collection_address"`
 	CollectionName    string          `json:"collection_name"`
-	ImageURI          string          `json:"image_uri"`
+	ImageURL          string          `json:"image_url"`
 	Name              string          `json:"name"`
 	TokenID           string          `json:"token_id"`
 	LastCostPrice     decimal.Decimal `json:"last_cost_price"`
@@ -169,7 +169,7 @@ type UserBid struct {
 	ExpireTime        int64           `json:"expire_time"`
 	BidType           int64           `json:"bid_type"`
 	CollectionName    string          `json:"collection_name"`
-	ImageURI          string          `json:"image_uri"`
+	ImageURL          string          `json:"image_url"`
 	OrderSize         int64           `json:"order_size"`
 	BidInfos          []BidInfo       `json:"bid_infos"`
 }
@@ -177,4 +177,20 @@ type UserBid struct {
 type MultichainCollection struct {
 	CollectionAddress string `json:"collection_address"`
 	Chain             string `json:"chain"`
+}
+
+// PortfolioOverview 投资组合概览
+type PortfolioOverview struct {
+	TotalItems    int64           `json:"total_items"`     // 总 NFT 数量
+	TotalValue    decimal.Decimal `json:"total_value"`     // 总价值（ETH）
+	Collections   int             `json:"collections"`     // 收藏集合数量
+	ListedCount   int             `json:"listed_count"`    // 上架数量
+	BidsCount     int             `json:"bids_count"`      // 出价数量
+	FloorPrice    decimal.Decimal `json:"floor_price"`     // 平均地板价
+	ProfitLoss    decimal.Decimal `json:"profit_loss"`     // 损益
+	ProfitLossPct decimal.Decimal `json:"profit_loss_pct"` // 损益百分比
+}
+
+type PortfolioOverviewResp struct {
+	Result PortfolioOverview `json:"result"`
 }

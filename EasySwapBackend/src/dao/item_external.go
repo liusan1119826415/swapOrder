@@ -33,15 +33,20 @@ func (d *Dao) QueryCollectionItemsImage(ctx context.Context, chain string,
 // 1. 按链名称对输入的Item信息进行分组
 // 2. 构建多条链的联合查询SQL
 // 3. 返回所有链上Item的图片信息
-func (d *Dao) QueryMultiChainCollectionsItemsImage(ctx context.Context, itemInfos []MultiChainItemInfo) ([]multi.ItemExternal, error) {
-	var itemsExternal []multi.ItemExternal
+func (d *Dao) QueryMultiChainCollectionsItemsImage(ctx context.Context, itemInfos []MultiChainItemInfo) ([]multi.Item, error) {
+	var items []multi.Item
 
-	// SQL语句组成部分
+	// 参数验证：如果 Item 信息为空，直接返回空结果
+	if len(itemInfos) == 0 {
+		return items, nil
+	}
+
+	// SQL 语句组成部分
 	sqlHead := "SELECT * FROM (" // 外层查询开始
 	sqlTail := ") as combined"   // 外层查询结束
 	var sqlMids []string         // 存储每条链的子查询
 
-	// 按链名称对Item信息分组
+	// 按链名称对 Item 信息分组
 	chainItems := make(map[string][]MultiChainItemInfo)
 	for _, itemInfo := range itemInfos {
 		items, ok := chainItems[strings.ToLower(itemInfo.ChainName)]
@@ -67,8 +72,8 @@ func (d *Dao) QueryMultiChainCollectionsItemsImage(ctx context.Context, itemInfo
 		// 2. 从对应链的external表查询
 		// 3. 匹配集合地址和tokenID
 		sqlMid := "("
-		sqlMid += "select collection_address, token_id, is_uploaded_oss, image_uri, oss_uri "
-		sqlMid += fmt.Sprintf("from %s ", multi.ItemExternalTableName(chainName))
+		sqlMid += "select collection_address, token_id, image_url,name"
+		sqlMid += fmt.Sprintf("from %s ", multi.ItemTableName(chainName))
 		sqlMid += "where (collection_address,token_id) in "
 		sqlMid += tmpStat
 		sqlMid += ")"
@@ -87,9 +92,9 @@ func (d *Dao) QueryMultiChainCollectionsItemsImage(ctx context.Context, itemInfo
 	sql += sqlTail
 
 	// 执行SQL查询
-	if err := d.DB.WithContext(ctx).Raw(sql).Scan(&itemsExternal).Error; err != nil {
+	if err := d.DB.WithContext(ctx).Raw(sql).Scan(&items).Error; err != nil {
 		return nil, errors.Wrap(err, "failed on query multi chain items external info")
 	}
 
-	return itemsExternal, nil
+	return items, nil
 }

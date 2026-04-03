@@ -14,6 +14,8 @@ require (
 	github.com/spf13/viper v1.12.0
 	github.com/zeromicro/go-zero v1.5.5
 	go.uber.org/zap v1.25.0
+	golang.org/x/sync v0.4.0
+	gorm.io/driver/mysql v1.5.1
 	gorm.io/gorm v1.25.2
 )
 
@@ -92,5 +94,4 @@ require (
 	gopkg.in/natefinch/npipe.v2 v2.0.0-20160621034901-c1b8fa8bdcce // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	gorm.io/driver/mysql v1.5.1 // indirect
 )

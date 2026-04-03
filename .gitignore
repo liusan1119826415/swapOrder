@@ -20,6 +20,8 @@ pc_ui/
 .env.development.local
 .env.test.local
 .env.production.local
+.env.example
+.env.production
 env/
 # IDE files
 .vscode/

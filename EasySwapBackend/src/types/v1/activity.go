@@ -5,20 +5,20 @@ import (
 )
 
 type ActivityMultiChainFilterParams struct {
-	ChainID             []int    `json:"filter_ids"`
-	CollectionAddresses []string `json:"collection_addresses"`
-	TokenID             string   `json:"token_id"`
-	UserAddresses       []string `json:"user_addresses"`
-	EventTypes          []string `json:"event_types"`
+	ChainID             []int    `json:"chainId"`
+	CollectionAddresses []string `json:"collectionAddresses"`
+	TokenID             string   `json:"tokenId"`
+	UserAddresses       []string `json:"userAddresses"`
+	EventTypes          []string `json:"eventTypes"`
 
 	Page     int `json:"page"`
-	PageSize int `json:"page_size"`
+	PageSize int `json:"pageSize"`
 }
 
 type ActivityInfo struct {
 	EventType          string          `json:"event_type"`
 	EventTime          int64           `json:"event_time"`
-	ImageURI           string          `json:"image_uri"`
+	ImageURI           string          `json:"image_url"`
 	CollectionAddress  string          `json:"collection_address"`
 	CollectionName     string          `json:"collection_name"`
 	CollectionImageURI string          `json:"collection_image_uri"`
