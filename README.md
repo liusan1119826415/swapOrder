@@ -92,6 +92,7 @@ For detailed instructions, see [Quick Start & Deployment Guide](./QUICKSTART_DEP
 - ✅ **Polygon**
 - 🔜 **Arbitrum** (Coming Soon)
 - 🔜 **Optimism** (Coming Soon)
+- 🔜 **Cross-chain Bridge** (Coming Soon)
 
 ## 📊 System Architecture
 
@@ -121,8 +122,16 @@ MIT License - See LICENSE file for details
 ## 🔗 Links
 
 - **GitHub**: https://github.com/ProjectsTask
-- **Demo**: Coming Soon
+- **Demo**: http://47.115.60.212:8901/
 - **Documentation**: See links above
+
+---
+
+## 🌍 Live Demo
+
+> Try it out: **http://47.115.60.212:8901/**
+>
+> Currently deployed on Ethereum Sepolia testnet. Cross-chain support (Polygon, Arbitrum, Optimism) and cross-chain bridge functionality are planned for future releases.
 
 ---
 
