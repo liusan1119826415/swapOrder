@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  # 前端服务
+  nft-market-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nft-market-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # 后端 API 地址（替换为你的后端服务地址）
+      - NEXT_PUBLIC_API_URL=http://47.115.60.212:8900
+      # 链配置
+      - NEXT_PUBLIC_CHAIN_ID=11155111
+      - NEXT_PUBLIC_CHAIN_NAME=Sepolia
+      # 应用配置
+      - NEXT_PUBLIC_APP_NAME=NFT Market
+      - NEXT_PUBLIC_APP_DESCRIPTION=Decentralized NFT Marketplace
+      # 钱包配置
+      - NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID=your_wallet_connect_project_id
+      # IPFS 配置
+      - NEXT_PUBLIC_IPFS_GATEWAY=https://ipfs.io/ipfs/
+      # 运行时环境变量
+      - NODE_ENV=production
+      - PORT=3000
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - nft-market-network
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # Nginx 反向代理（可选，用于 HTTPS 和负载均衡）
+  nginx-proxy:
+    image: nginx:alpine
+    container_name: nft-market-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx-proxy.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - nft-market-frontend
+    networks:
+      - nft-market-network
+    profiles:
+      - with-nginx
+
+networks:
+  nft-market-network:
+    driver: bridge

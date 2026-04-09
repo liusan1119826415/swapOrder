@@ -29,8 +29,8 @@ export const getCollectionActivities = async (
   pageSize: number = 20
 ): Promise<ActivityApiResponse<Activity>> => {
   return getActivities({
-    chainId: [chainId],
-    collectionAddresses: [collectionAddress],
+    chain_id: [chainId],
+    collection_addresses: [collectionAddress],
     page,
     pageSize,
   });
@@ -51,8 +51,8 @@ export const getUserActivities = async (
   pageSize: number = 20
 ): Promise<ActivityApiResponse<Activity>> => {
   return getActivities({
-    chainId: chainId ? [chainId] : undefined,
-    userAddresses: [userAddress],
+    chain_id: chainId ? [chainId] : undefined,
+    user_addresses: [userAddress],
     page,
     pageSize,
   });

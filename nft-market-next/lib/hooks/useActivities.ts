@@ -20,9 +20,11 @@ export const useActivities = (filters: ActivityFilterParams) => {
     queryKey: activityKeys.list(filters),
     queryFn: ({ pageParam = 1 }) =>
       getActivities({ ...filters, page: pageParam }),
-    getNextPageParam: (lastPage) => {
-      if (lastPage.hasMore) {
-        return lastPage.page + 1;
+    getNextPageParam: (lastPage, allPages) => {
+      const currentPage = allPages.length;
+      const totalPages = Math.ceil(lastPage.count / (filters.pageSize || 20));
+      if (currentPage < totalPages) {
+        return currentPage + 1;
       }
       return undefined;
     },
@@ -42,9 +44,11 @@ export const useCollectionActivities = (
     queryKey: activityKeys.collection(collectionAddress, chainId),
     queryFn: ({ pageParam = 1 }) =>
       getCollectionActivities(collectionAddress, chainId, pageParam, pageSize),
-    getNextPageParam: (lastPage) => {
-      if (lastPage.hasMore) {
-        return lastPage.page + 1;
+    getNextPageParam: (lastPage, allPages) => {
+      const currentPage = allPages.length;
+      const totalPages = Math.ceil(lastPage.count / pageSize);
+      if (currentPage < totalPages) {
+        return currentPage + 1;
       }
       return undefined;
     },
@@ -65,9 +69,11 @@ export const useUserActivities = (
     queryKey: activityKeys.user(userAddress, chainId),
     queryFn: ({ pageParam = 1 }) =>
       getUserActivities(userAddress, chainId, pageParam, pageSize),
-    getNextPageParam: (lastPage) => {
-      if (lastPage.hasMore) {
-        return lastPage.page + 1;
+    getNextPageParam: (lastPage, allPages) => {
+      const currentPage = allPages.length;
+      const totalPages = Math.ceil(lastPage.count / pageSize);
+      if (currentPage < totalPages) {
+        return currentPage + 1;
       }
       return undefined;
     },

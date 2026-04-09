@@ -3,6 +3,7 @@
 import Image from 'next/image';
 import { ShoppingCart, Tag, ArrowRightLeft } from 'lucide-react';
 import { clsx } from 'clsx';
+import { formatEther, parseEther } from 'viem';
 
 interface Activity {
   id: string;
@@ -80,7 +81,7 @@ export default function ActivityTable({ activities, className }: ActivityTablePr
                 <td className="px-4 py-5 text-right">
                   {activity.price ? (
                     <div>
-                      <span className="font-bold text-secondary">{activity.price}</span>
+                      <span className="font-bold text-secondary">{formatEther(BigInt(activity.price))}</span>
                       {activity.priceUsd && (
                         <p className="text-[10px] text-slate-500">{activity.priceUsd}</p>
                       )}

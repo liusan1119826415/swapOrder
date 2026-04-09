@@ -29,7 +29,5 @@ export {
   useUserListings,
   useUserBids,
 } from './usePortfolio';
-export { useListings, useBids } from './useOrders';
-export { useActivity } from './useActivity';
 export { useTradingModal } from './useTradingModal';
 export { useNFTApproval } from './useNFTApproval';

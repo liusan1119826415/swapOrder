@@ -282,7 +282,6 @@ export function useBuyNFT({ chainId }: UseMatchOrderOptions) {
 
       console.log('Constructed sellOrder:', sellOrder);
       console.log('Constructed buyOrder:', buyOrder);
-      return
 
       // Execute match using matchOrder (singular)
       // For accept offer: seller calls matchOrder with value=0

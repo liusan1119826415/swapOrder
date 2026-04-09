@@ -47,12 +47,12 @@ export default function ActivityPage() {
 
   // 添加事件类型过滤
   if (selectedEvent !== 'All Events') {
-    filters.eventTypes = [eventTypesMap[selectedEvent]];
+    filters.event_types = [eventTypesMap[selectedEvent]];
   }
 
   // 添加链过滤
   if (selectedChain !== 'All Chains') {
-    filters.chainId = [chainsMap[selectedChain]];
+    filters.chain_id = [chainsMap[selectedChain]];
   }
 
   // 添加时间范围过滤
@@ -76,7 +76,7 @@ export default function ActivityPage() {
     }
     
     if (timeRangeSeconds > 0) {
-      filters.startTime = now - timeRangeSeconds;
+      filters.start_time = now - timeRangeSeconds;
     }
   }
 
@@ -86,11 +86,13 @@ export default function ActivityPage() {
     queryFn: () => getActivities(filters),
   });
 
+  console.log('Activity data:', data);
+
   const actdata = data?.data;
 
 
   // 计算总页数
-  const totalPages = Math.ceil((actdata?.count || 0) / pageSize);
+  const totalPages = Math.ceil((data?.data?.count || 0) / pageSize);
   const hasMore = page < totalPages;
 
   // 处理分页变化

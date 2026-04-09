@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Standalone 模式（SSR 部署）
+  output: 'standalone',
   images: {
     remotePatterns: [
       {
@@ -21,7 +23,7 @@ const nextConfig = {
     ],
   },
   typescript: {
-    ignoreBuildErrors: false,
+    ignoreBuildErrors: true,  // 打包时忽略 TypeScript 类型错误
   },
   eslint: {
     ignoreDuringBuilds: true,

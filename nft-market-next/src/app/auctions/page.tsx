@@ -92,7 +92,7 @@ export default function AuctionsPage() {
           pageSize: 20,
         });
         console.log('Auctions response:', response);
-        setAuctions(response?.data?.result || []);
+        setAuctions(response?.result || []);
       } catch (error) {
         console.error('Failed to load auctions:', error);
         setAuctions([]);
