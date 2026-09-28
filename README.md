@@ -121,7 +121,6 @@ MIT License - See LICENSE file for details
 
 ## 🔗 Links
 
-- **GitHub**: https://github.com/ProjectsTask
 - **Demo**: http://47.115.60.212:8901/
 - **Documentation**: See links above
 
